@@ -5,6 +5,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
 import requests
 import asyncio
+from collections import deque
 
 # Настройки логирования
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -23,6 +24,9 @@ BANNED_USERS_FILE = "banned_users.txt"
 
 # Список сетей, которые отслеживает бот
 NETWORKS = ["solana", "ethereum", "bsc", "bitcoin", "tron", "base", "ton", "xrp", "zora"]
+
+# История последних 20 сообщений
+MESSAGE_HISTORY = deque(maxlen=20)
 
 if not TOKEN or not CHAT_ID:
     raise ValueError("Отсутствуют TELEGRAM_BOT_TOKEN или CHAT_ID в переменных окружения!")
@@ -74,6 +78,10 @@ async def start(update: Update, context: CallbackContext):
     
     await update.message.reply_text("🚀 Бот успешно запущен и следит за рынком!")
 
+    # Отправляем пользователю последние 10 сообщений
+    for msg in MESSAGE_HISTORY:
+        await update.message.reply_text(msg)
+
 # Команда /users для просмотра всех пользователей
 async def get_users(update: Update, context: CallbackContext):
     if update.message.from_user.id != ADMIN_ID:
@@ -110,14 +118,16 @@ async def check_large_transactions():
                 base_symbol = token["baseToken"]["symbol"]
                 dex_url = token.get("url", "")
                 
-                if (base_symbol in ["BTC", "ETH"] and volume > 1000000) or (volume > 100000):
+                if (base_symbol in ["BTC", "ETH"] and volume > 3000000) or (volume > 200000):
                     message = (
                         f"🔥 Крупная сделка по {base_symbol} ({network.upper()})!\n"
                         f"📊 Объем за 24ч: ${volume}\n"
                         f"🔗 [Смотреть на DexScreener]({dex_url})"
                     )
                     logging.info(f"Отправка сообщения: {message}")
+                    MESSAGE_HISTORY.append(message)
                     await app.bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
+                    await asyncio.sleep(3)  # Ограничение 20 сообщений в минуту
             except Exception as e:
                 logging.error(f"Ошибка обработки токена в сети {network}: {e}")
 
