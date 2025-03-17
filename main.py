@@ -67,7 +67,6 @@ async def main():
     asyncio.create_task(check_loop())
     await app.start()
     await app.updater.start_polling()
-    await asyncio.get_event_loop().run_forever()
 
 # Функция для повторной проверки
 async def check_loop():
@@ -77,9 +76,6 @@ async def check_loop():
         await asyncio.sleep(600)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(main())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(main())
