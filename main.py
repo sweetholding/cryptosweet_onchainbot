@@ -31,7 +31,6 @@ if not TOKEN or not CHAT_ID:
 app = Application.builder().token(TOKEN).build()
 
 # Загружаем список заблокированных пользователей
-
 def load_banned_users():
     if not os.path.exists(BANNED_USERS_FILE):
         return set()
@@ -41,7 +40,6 @@ def load_banned_users():
 banned_users = load_banned_users()
 
 # Функция для логирования пользователей
-
 def log_user(user_id, username):
     if user_id in banned_users:
         return  # Если пользователь заблокирован, не добавляем его
@@ -93,7 +91,7 @@ async def get_users(update: Update, context: CallbackContext):
 # Функция для мониторинга крупных сделок
 async def check_large_transactions():
     for network in NETWORKS:
-        url = f"https://api.dexscreener.com/latest/dex/pairs/{network}"
+        url = f"https://api.dexscreener.com/latest/dex/search?q={network}"
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
