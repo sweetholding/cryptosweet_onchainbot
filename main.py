@@ -9,7 +9,7 @@ import asyncio
 # Настройки логирования
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 
-# Применяем nest_asyncio для Railway
+# Применяем nest_asyncio для Railway (для работы с asyncio)
 nest_asyncio.apply()
 
 # Токен бота и ID чата
@@ -30,7 +30,7 @@ async def start(update: Update, context: CallbackContext):
 async def check_large_transactions():
     networks = ["solana", "ethereum", "bsc", "bitcoin", "tron", "base", "ton", "xrp", "zora"]
     for network in networks:
-        url = f"https://api.dexscreener.com/latest/dex/pairs/{network}"  # Проверка пар в сети
+        url = f"https://api.dexscreener.com/latest/dex/tokens/{network}"
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
@@ -46,16 +46,13 @@ async def check_large_transactions():
                     base_symbol = token["baseToken"]["symbol"]
                     price_change = float(token.get("priceChange", {}).get("h24", 0))
                     dex_url = token.get("url", "")
-                    
+
                     # Фильтр объемов для BTC/ETH и остальных токенов
                     if (base_symbol in ["BTC", "ETH"] and volume > 1000000) or (volume > 100000):
                         message = (
-                            f"🔥 Крупная сделка по {base_symbol} ({network.upper()})!
-"
-                            f"📊 Объем за 24ч: ${volume}
-"
-                            f"📈 Изменение цены: {price_change}%
-"
+                            f"🔥 Крупная сделка по {base_symbol} ({network.upper()})!\n"
+                            f"📊 Объем за 24ч: ${volume}\n"
+                            f"📈 Изменение цены: {price_change}%\n"
                             f"🔗 [Смотреть на DexScreener]({dex_url})"
                         )
                         logging.info(f"Отправка сообщения: {message}")
@@ -69,23 +66,23 @@ app.add_handler(CommandHandler("start", start))
 # Функция основного запуска
 async def main():
     logging.info("✅ Бот запущен и работает")
-    asyncio.create_task(check_loop())
+    asyncio.create_task(check_loop())  # Фоновая проверка сделок
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
-    await app.run_forever()
+    await app.run_forever()  # Бесконечный запуск
 
-# Функция для повторной проверки
+# Функция для повторной проверки сделок каждые 10 минут
 async def check_loop():
     while True:
         logging.info("🔍 Проверка крупных транзакций...")
         await check_large_transactions()
-        await asyncio.sleep(600)
+        await asyncio.sleep(600)  # Каждые 10 минут
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
-    except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(main())
+    except RuntimeError:
+        logging.error("Ошибка при запуске бота!")
