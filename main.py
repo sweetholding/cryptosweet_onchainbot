@@ -1,10 +1,10 @@
 import os
 import logging
 import nest_asyncio
+import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
 import requests
-import asyncio
 
 # Настройки логирования
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -12,13 +12,12 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 # Применяем nest_asyncio для совместимости с Railway
 nest_asyncio.apply()
 
-# Токен бота и ID чата из переменных Railway
+# Токен бота и ID чата
 TOKEN = "7594557278:AAH3JKXfwupIMLqmmzmjYbH3ToSSTUGnmHo"
 CHAT_ID = "423798633"
 
-# Проверка наличия токена
 if not TOKEN or not CHAT_ID:
-    raise ValueError("Отсутствуют TELEGRAM_BOT_TOKEN или CHAT_ID в переменных окружения!")
+    raise ValueError("Отсутствуют TELEGRAM_BOT_TOKEN или CHAT_ID!")
 
 # Инициализация бота
 app = Application.builder().token(TOKEN).build()
@@ -41,27 +40,25 @@ async def check_large_transactions():
     if "pairs" in data:
         for token in data["pairs"]:
             try:
-                symbol = token['baseToken']['symbol']
                 volume = float(token.get("volume", {}).get("h24", 0))
                 price_change = float(token.get("priceChange", {}).get("h24", 0))
-                
-                # Определяем минимальный порог сделки
-                min_threshold = 100000  # Для всех токенов
+                symbol = token["baseToken"]["symbol"].upper()
+
+                # Динамический порог
                 if symbol in ["BTC", "ETH"]:
-                    min_threshold = 1000000  # Для BTC и ETH
+                    threshold = 1000000
+                else:
+                    threshold = 100000
                 
-                if volume >= min_threshold:
+                if volume > threshold:
                     message = (
-                        f"🔥 Крупная транзакция по {symbol}!
+                        f"🔥 Крупное движение по {symbol}!
 "
-                        f"📊 Объем за 24ч: ${volume}
-"
-                        f"📈 Изменение цены: {price_change}%
+                        f"📊 Объем за 24ч: ${volume:,.2f}
 "
                         f"🔗 [Смотреть на DexScreener]({token['url']})"
                     )
-                    bot = app.bot
-                    await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
+                    await app.bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
             except Exception as e:
                 logging.error(f"Ошибка обработки токена: {e}")
 
@@ -69,11 +66,10 @@ async def check_large_transactions():
 app.add_handler(CommandHandler("start", start))
 
 # Запуск бота
-async def run():
-    async with app:
-        logging.info("✅ Бот запущен и работает")
-        asyncio.create_task(check_loop())
-        await app.run_polling()
+async def main():
+    logging.info("✅ Бот запущен и работает")
+    asyncio.create_task(check_loop())
+    await app.run_polling()
 
 async def check_loop():
     while True:
@@ -81,4 +77,4 @@ async def check_loop():
         await asyncio.sleep(600)  # Проверка раз в 10 минут
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    asyncio.run(main())
