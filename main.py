@@ -60,24 +60,22 @@ async def check_large_transactions():
 # Регистрация команд
 app.add_handler(CommandHandler("start", start))
 
-# Функция основного запуска
-async def main():
-    logging.info("✅ Бот запущен и работает")
-    asyncio.create_task(check_loop())
-    await app.start()
-    await app.updater.start_polling()
-    await asyncio.get_event_loop().run_forever()
-
 # Функция для повторной проверки
 async def check_loop():
     while True:
         await check_large_transactions()
         await asyncio.sleep(600)
 
+# Функция основного запуска
+async def main():
+    logging.info("✅ Бот запущен и работает")
+    loop = asyncio.get_event_loop()
+    loop.create_task(check_loop())  # Запуск фоновой проверки
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await app.run_until_disconnected()
+
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except RuntimeError:  # Обход ошибки event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
