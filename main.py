@@ -47,8 +47,7 @@ async def check_large_transactions():
                 # Условие для крупных и мелких токенов
                 if (base_symbol in ["BTC", "ETH"] and volume > 1000000) or (volume > 100000):
                     message = (
-                        f"🔥 Крупная сделка по {base_symbol}!
-"
+                        f"🔥 Крупная сделка по {base_symbol}!\n"
                         f"📊 Объем за 24ч: ${volume}\n"
                         f"📈 Изменение цены: {price_change}%\n"
                         f"🔗 [Смотреть на DexScreener]({token['url']})"
@@ -65,7 +64,9 @@ app.add_handler(CommandHandler("start", start))
 async def main():
     logging.info("✅ Бот запущен и работает")
     asyncio.create_task(check_loop())
-    await app.run_polling()
+    await app.start()
+    await app.updater.start_polling()
+    await asyncio.get_event_loop().run_forever()
 
 # Функция для повторной проверки
 async def check_loop():
