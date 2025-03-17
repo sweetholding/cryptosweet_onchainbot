@@ -28,35 +28,40 @@ async def start(update: Update, context: CallbackContext):
 
 # Функция для проверки крупных транзакций
 async def check_large_transactions():
-    url = "https://api.dexscreener.com/latest/dex/tokens"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-    except requests.RequestException as e:
-        logging.error(f"Ошибка запроса к DexScreener: {e}")
-        return
-    
-    if "pairs" in data:
-        for token in data["pairs"]:
-            try:
-                volume = float(token.get("volume", {}).get("h24", 0))
-                base_symbol = token["baseToken"]["symbol"]
-                price_change = float(token.get("priceChange", {}).get("h24", 0))
-                dex_url = token.get("url", "")
-                
-                # Фильтр объемов для BTC/ETH и остальных токенов
-                if (base_symbol in ["BTC", "ETH"] and volume > 1000000) or (volume > 100000):
-                    message = (
-                        f"🔥 Крупная сделка по {base_symbol}!\n"
-                        f"📊 Объем за 24ч: ${volume}\n"
-                        f"📈 Изменение цены: {price_change}%\n"
-                        f"🔗 [Смотреть на DexScreener]({dex_url})"
-                    )
-                    logging.info(f"Отправка сообщения: {message}")
-                    await app.bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
-            except Exception as e:
-                logging.error(f"Ошибка обработки токена: {e}")
+    networks = ["solana", "ethereum", "bsc", "bitcoin", "tron", "base", "ton", "xrp", "zora"]
+    for network in networks:
+        url = f"https://api.dexscreener.com/latest/dex/pairs/{network}"  # Проверка пар в сети
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+        except requests.RequestException as e:
+            logging.error(f"Ошибка запроса к DexScreener ({network}): {e}")
+            continue
+        
+        if "pairs" in data:
+            for token in data["pairs"]:
+                try:
+                    volume = float(token.get("volume", {}).get("h24", 0))
+                    base_symbol = token["baseToken"]["symbol"]
+                    price_change = float(token.get("priceChange", {}).get("h24", 0))
+                    dex_url = token.get("url", "")
+                    
+                    # Фильтр объемов для BTC/ETH и остальных токенов
+                    if (base_symbol in ["BTC", "ETH"] and volume > 1000000) or (volume > 100000):
+                        message = (
+                            f"🔥 Крупная сделка по {base_symbol} ({network.upper()})!
+"
+                            f"📊 Объем за 24ч: ${volume}
+"
+                            f"📈 Изменение цены: {price_change}%
+"
+                            f"🔗 [Смотреть на DexScreener]({dex_url})"
+                        )
+                        logging.info(f"Отправка сообщения: {message}")
+                        await app.bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
+                except Exception as e:
+                    logging.error(f"Ошибка обработки токена в сети {network}: {e}")
 
 # Регистрация команд
 app.add_handler(CommandHandler("start", start))
