@@ -29,6 +29,7 @@ async def start(update: Update, context: CallbackContext):
 # Функция для проверки крупных транзакций
 async def check_large_transactions():
     networks = ["solana", "ethereum", "bsc", "bitcoin", "tron", "base", "ton", "xrp", "zora"]
+    
     for network in networks:
         url = f"https://api.dexscreener.com/latest/dex/tokens/{network}"
         try:
@@ -39,26 +40,30 @@ async def check_large_transactions():
             logging.error(f"Ошибка запроса к DexScreener ({network}): {e}")
             continue
         
-        if "pairs" in data:
-            for token in data["pairs"]:
-                try:
-                    volume = float(token.get("volume", {}).get("h24", 0))
-                    base_symbol = token["baseToken"]["symbol"]
-                    price_change = float(token.get("priceChange", {}).get("h24", 0))
-                    dex_url = token.get("url", "")
+        # Проверяем, есть ли ключ 'pairs' в ответе
+        if "pairs" not in data or not isinstance(data["pairs"], list):
+            logging.warning(f"⚠️ Некорректный ответ от API для {network}: {data}")
+            continue
 
-                    # Фильтр объемов для BTC/ETH и остальных токенов
-                    if (base_symbol in ["BTC", "ETH"] and volume > 1000000) or (volume > 100000):
-                        message = (
-                            f"🔥 Крупная сделка по {base_symbol} ({network.upper()})!\n"
-                            f"📊 Объем за 24ч: ${volume}\n"
-                            f"📈 Изменение цены: {price_change}%\n"
-                            f"🔗 [Смотреть на DexScreener]({dex_url})"
-                        )
-                        logging.info(f"Отправка сообщения: {message}")
-                        await app.bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
-                except Exception as e:
-                    logging.error(f"Ошибка обработки токена в сети {network}: {e}")
+        for token in data["pairs"]:
+            try:
+                volume = float(token.get("volume", {}).get("h24", 0))
+                base_symbol = token["baseToken"]["symbol"]
+                price_change = float(token.get("priceChange", {}).get("h24", 0))
+                dex_url = token.get("url", "")
+
+                # Фильтр объемов для BTC/ETH и остальных токенов
+                if (base_symbol in ["BTC", "ETH"] and volume > 1000000) or (volume > 100000):
+                    message = (
+                        f"🔥 Крупная сделка по {base_symbol} ({network.upper()})!\n"
+                        f"📊 Объем за 24ч: ${volume}\n"
+                        f"📈 Изменение цены: {price_change}%\n"
+                        f"🔗 [Смотреть на DexScreener]({dex_url})"
+                    )
+                    logging.info(f"Отправка сообщения: {message}")
+                    await app.bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
+            except Exception as e:
+                logging.error(f"Ошибка обработки токена в сети {network}: {e}")
 
 # Регистрация команд
 app.add_handler(CommandHandler("start", start))
@@ -70,7 +75,7 @@ async def main():
     await app.initialize()
     await app.start()
     await app.updater.start_polling()
-    await app.run_forever()  # Бесконечный запуск
+    await app.idle()  # Заменено run_forever() на idle()
 
 # Функция для повторной проверки сделок каждые 10 минут
 async def check_loop():
