@@ -43,39 +43,43 @@ async def check_large_transactions():
                 volume = float(token.get("volume", {}).get("h24", 0))
                 base_symbol = token["baseToken"]["symbol"]
                 price_change = float(token.get("priceChange", {}).get("h24", 0))
+                dex_url = token.get("url", "")
                 
-                # Условие для крупных и мелких токенов
+                # Фильтр объемов для BTC/ETH и остальных токенов
                 if (base_symbol in ["BTC", "ETH"] and volume > 1000000) or (volume > 100000):
                     message = (
                         f"🔥 Крупная сделка по {base_symbol}!\n"
                         f"📊 Объем за 24ч: ${volume}\n"
                         f"📈 Изменение цены: {price_change}%\n"
-                        f"🔗 [Смотреть на DexScreener]({token['url']})"
+                        f"🔗 [Смотреть на DexScreener]({dex_url})"
                     )
-                    bot = app.bot
-                    await bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
+                    logging.info(f"Отправка сообщения: {message}")
+                    await app.bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
             except Exception as e:
                 logging.error(f"Ошибка обработки токена: {e}")
 
 # Регистрация команд
 app.add_handler(CommandHandler("start", start))
 
-# Функция для повторной проверки
-async def check_loop():
-    while True:
-        await check_large_transactions()
-        await asyncio.sleep(600)
-
 # Функция основного запуска
 async def main():
     logging.info("✅ Бот запущен и работает")
-    loop = asyncio.get_event_loop()
-    loop.create_task(check_loop())  # Запуск фоновой проверки
-    await app.initialize()
+    asyncio.create_task(check_loop())
     await app.start()
     await app.updater.start_polling()
-    await app.run_until_disconnected()
+    await asyncio.get_event_loop().run_forever()
+
+# Функция для повторной проверки
+async def check_loop():
+    while True:
+        logging.info("🔍 Проверка крупных транзакций...")
+        await check_large_transactions()
+        await asyncio.sleep(600)
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    try:
+        asyncio.run(main())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(main())
