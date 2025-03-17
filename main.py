@@ -99,7 +99,7 @@ async def get_users(update: Update, context: CallbackContext):
 # Функция для мониторинга крупных сделок
 async def check_large_transactions():
     for network in NETWORKS:
-        url = f"https://api.dexscreener.com/latest/dex/search?q={network}"
+        url = f"https://api.dexscreener.com/latest/dex/search?q={network}&networkId=mainnet"
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
