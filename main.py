@@ -65,9 +65,11 @@ app.add_handler(CommandHandler("start", start))
 async def main():
     logging.info("✅ Бот запущен и работает")
     asyncio.create_task(check_loop())
+    await app.initialize()
     await app.start()
     await app.updater.start_polling()
-    
+    await app.run_forever()
+
 # Функция для повторной проверки
 async def check_loop():
     while True:
@@ -76,6 +78,9 @@ async def check_loop():
         await asyncio.sleep(600)
 
 if __name__ == "__main__":
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())
+    try:
+        asyncio.run(main())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(main())
