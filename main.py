@@ -67,7 +67,7 @@ async def main():
     asyncio.create_task(check_loop())
     await app.start()
     await app.updater.start_polling()
-
+    
 # Функция для повторной проверки
 async def check_loop():
     while True:
