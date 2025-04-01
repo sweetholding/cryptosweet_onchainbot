@@ -25,13 +25,15 @@ USER_LIST = set()
 MESSAGE_HISTORY = deque(maxlen=20)
 
 # Сети для отслеживания крупных сделок
-NETWORKS = ["solana", "ethereum", "bsc", "bitcoin", "tron", "base", "ton", "xrp"]
+NETWORKS = ["solana", "ethereum", "bsc", "bitcoin", "tron", "base", "xrp"]
 
 # Пороговые значения фильтров
 MIN_LIQUIDITY = 50000
 MIN_VOLUME_24H = 100000
 MIN_TXNS_24H = 500
 MIN_PRICE_CHANGE_24H = 5.0  # В процентах
+MIN_FDV = 1000000
+MAX_FDV = 50000000
 
 # Инициализация бота
 app = Application.builder().token(TOKEN).build()
@@ -70,7 +72,7 @@ async def add_user(update: Update, context: CallbackContext):
     except ValueError:
         await update.message.reply_text("❌ Ошибка: USER_ID должен быть числом.")
 
-# Команда /listusers (просмотр всех добавленных пользователей)
+# Команда /users (просмотр всех добавленных пользователей)
 async def list_users(update: Update, context: CallbackContext):
     if update.message.from_user.id != ADMIN_ID:
         await update.message.reply_text("⛔ У вас нет прав для выполнения этой команды!")
@@ -131,13 +133,15 @@ async def check_large_transactions():
                     liquidity = float(token.get("liquidity", {}).get("usd", 0))
                     txns = int(token.get("txns", {}).get("h24", 0))
                     price_change = float(token.get("priceChange", {}).get("h24", 0))
+                    fdv = float(token.get("fdv", 0))
                     base_symbol = token["baseToken"]["symbol"]
                     dex_url = token.get("url", "")
 
                     if (liquidity >= MIN_LIQUIDITY and
                         volume >= MIN_VOLUME_24H and
                         txns >= MIN_TXNS_24H and
-                        price_change >= MIN_PRICE_CHANGE_24H):
+                        price_change >= MIN_PRICE_CHANGE_24H and
+                        MIN_FDV <= fdv <= MAX_FDV):
 
                         message = (
                             f"🚀 Найден перспективный токен {base_symbol} ({network.upper()})!\n"
@@ -145,6 +149,7 @@ async def check_large_transactions():
                             f"📊 Объём (24ч): ${volume:,.0f}\n"
                             f"🔁 Транзакций (24ч): {txns}\n"
                             f"📈 Рост цены (24ч): {price_change}%\n"
+                            f"💰 FDV: ${fdv:,.0f}\n"
                             f"🔗 [Смотреть на DexScreener]({dex_url})"
                         )
 
@@ -165,7 +170,7 @@ async def check_large_transactions():
 # Регистрация команд
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("adduser", add_user))
-app.add_handler(CommandHandler("listusers", list_users))
+app.add_handler(CommandHandler("users", list_users))
 app.add_handler(CommandHandler("sendall", send_to_all))
 
 # Функция основного запуска
