@@ -19,8 +19,23 @@ TOKEN = "7594557278:AAH3JKXfwupIMLqmmzmjYbH3ToSSTUGnmHo"
 CHAT_ID = "423798633"
 ADMIN_ID = 423798633  # Твой Telegram ID для уведомлений
 
-# Список подписанных пользователей (в памяти, без файлов)
-USER_LIST = set()
+# Путь к файлу с пользователями
+USERS_FILE = "users.txt"
+
+# Загрузка пользователей из файла
+def load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "r") as f:
+            return set(map(int, f.read().splitlines()))
+    return set()
+
+# Сохранение пользователей в файл
+def save_users():
+    with open(USERS_FILE, "w") as f:
+        f.write("\n".join(map(str, USER_LIST)))
+
+# Список подписанных пользователей
+USER_LIST = load_users()
 
 # История последних 20 сообщений
 MESSAGE_HISTORY = deque(maxlen=20)
@@ -46,6 +61,8 @@ async def start(update: Update, context: CallbackContext):
     username = update.message.from_user.username or "Неизвестный"
 
     USER_LIST.add(user_id)
+    save_users()
+
     await update.message.reply_text("✅ Вы подписаны на уведомления!")
 
     await context.bot.send_message(
@@ -68,6 +85,7 @@ async def add_user(update: Update, context: CallbackContext):
     try:
         user_id = int(context.args[0])
         USER_LIST.add(user_id)
+        save_users()
         await update.message.reply_text(f"✅ Пользователь {user_id} добавлен в рассылку.")
     except ValueError:
         await update.message.reply_text("❌ Ошибка: USER_ID должен быть числом.")
@@ -86,6 +104,7 @@ async def remove_user(update: Update, context: CallbackContext):
         user_id = int(context.args[0])
         if user_id in USER_LIST:
             USER_LIST.remove(user_id)
+            save_users()
             await update.message.reply_text(f"🗑 Пользователь {user_id} удалён из рассылки.")
         else:
             await update.message.reply_text("❌ Такого пользователя нет в списке.")
@@ -149,6 +168,13 @@ async def check_large_transactions():
 
             for token in data["pairs"]:
                 try:
+                    created_at_timestamp_raw = token.get("pairCreatedAt")
+                    if not created_at_timestamp_raw or created_at_timestamp_raw == 0:
+                        continue  # жёсткая фильтрация: пропускаем токены без даты создания пары
+
+                    created_at_timestamp = created_at_timestamp_raw / 1000
+                    token_age_days = (datetime.now(timezone.utc) - datetime.fromtimestamp(created_at_timestamp, tz=timezone.utc)).days
+
                     volume = float(token.get("volume", {}).get("h24", 0))
                     liquidity = float(token.get("liquidity", {}).get("usd", 0))
                     txns = int(token.get("txns", {}).get("h24", 0))
@@ -156,8 +182,6 @@ async def check_large_transactions():
                     fdv = float(token.get("fdv", 0))
                     base_symbol = token["baseToken"]["symbol"]
                     dex_url = token.get("url", "")
-                    created_at_timestamp = token.get("pairCreatedAt", 0) / 1000
-                    token_age_days = (datetime.now(timezone.utc) - datetime.fromtimestamp(created_at_timestamp, tz=timezone.utc)).days
 
                     if (liquidity >= MIN_LIQUIDITY and
                         volume >= MIN_VOLUME_24H and
