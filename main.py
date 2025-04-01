@@ -6,6 +6,7 @@ from telegram.ext import Application, CommandHandler, CallbackContext
 import requests
 import asyncio
 from collections import deque
+from datetime import datetime, timezone
 
 # Настройки логирования
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -34,6 +35,7 @@ MIN_TXNS_24H = 500
 MIN_PRICE_CHANGE_24H = 5.0  # В процентах
 MIN_FDV = 1000000
 MAX_FDV = 50000000
+MAX_TOKEN_AGE_DAYS = 14
 
 # Инициализация бота
 app = Application.builder().token(TOKEN).build()
@@ -43,16 +45,14 @@ async def start(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     username = update.message.from_user.username or "Неизвестный"
 
+    USER_LIST.add(user_id)
     await update.message.reply_text("✅ Вы подписаны на уведомления!")
 
-    # Отправляем админу ID нового пользователя
     await context.bot.send_message(
         chat_id=ADMIN_ID,
         text=f"👤 Новый пользователь подписался!\n"
              f"📌 Username: @{username}\n"
-             f"🆔 ID: {user_id}\n"
-             f"Чтобы добавить его в рассылку, используй команду:\n"
-             f"/adduser {user_id}"
+             f"🆔 ID: {user_id}"
     )
 
 # Команда /adduser (админ вручную добавляет пользователя в рассылку)
@@ -69,6 +69,26 @@ async def add_user(update: Update, context: CallbackContext):
         user_id = int(context.args[0])
         USER_LIST.add(user_id)
         await update.message.reply_text(f"✅ Пользователь {user_id} добавлен в рассылку.")
+    except ValueError:
+        await update.message.reply_text("❌ Ошибка: USER_ID должен быть числом.")
+
+# Команда /removeuser (удаление пользователя)
+async def remove_user(update: Update, context: CallbackContext):
+    if update.message.from_user.id != ADMIN_ID:
+        await update.message.reply_text("⛔ У вас нет прав для выполнения этой команды!")
+        return
+
+    if not context.args:
+        await update.message.reply_text("❌ Использование: /removeuser USER_ID")
+        return
+
+    try:
+        user_id = int(context.args[0])
+        if user_id in USER_LIST:
+            USER_LIST.remove(user_id)
+            await update.message.reply_text(f"🗑 Пользователь {user_id} удалён из рассылки.")
+        else:
+            await update.message.reply_text("❌ Такого пользователя нет в списке.")
     except ValueError:
         await update.message.reply_text("❌ Ошибка: USER_ID должен быть числом.")
 
@@ -136,12 +156,15 @@ async def check_large_transactions():
                     fdv = float(token.get("fdv", 0))
                     base_symbol = token["baseToken"]["symbol"]
                     dex_url = token.get("url", "")
+                    created_at_timestamp = token.get("pairCreatedAt", 0) / 1000
+                    token_age_days = (datetime.now(timezone.utc) - datetime.fromtimestamp(created_at_timestamp, tz=timezone.utc)).days
 
                     if (liquidity >= MIN_LIQUIDITY and
                         volume >= MIN_VOLUME_24H and
                         txns >= MIN_TXNS_24H and
                         price_change >= MIN_PRICE_CHANGE_24H and
-                        MIN_FDV <= fdv <= MAX_FDV):
+                        MIN_FDV <= fdv <= MAX_FDV and
+                        token_age_days <= MAX_TOKEN_AGE_DAYS):
 
                         message = (
                             f"🚀 Найден перспективный токен {base_symbol} ({network.upper()})!\n"
@@ -150,6 +173,7 @@ async def check_large_transactions():
                             f"🔁 Транзакций (24ч): {txns}\n"
                             f"📈 Рост цены (24ч): {price_change}%\n"
                             f"💰 FDV: ${fdv:,.0f}\n"
+                            f"📆 Возраст токена: {token_age_days} дней\n"
                             f"🔗 [Смотреть на DexScreener]({dex_url})"
                         )
 
@@ -170,6 +194,7 @@ async def check_large_transactions():
 # Регистрация команд
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("adduser", add_user))
+app.add_handler(CommandHandler("removeuser", remove_user))
 app.add_handler(CommandHandler("users", list_users))
 app.add_handler(CommandHandler("sendall", send_to_all))
 
