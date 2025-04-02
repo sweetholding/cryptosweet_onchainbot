@@ -94,14 +94,21 @@ async def remove_user(update: Update, context: CallbackContext):
 async def list_users(update: Update, context: CallbackContext):
     global USER_LIST
     USER_LIST = load_users()
-    if update.message.from_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ Нет прав для выполнения этой команды!")
+    user_id = update.effective_user.id
+    logging.info(f"Команда /users от пользователя ID: {user_id}")
+
+    if user_id != ADMIN_ID:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="⛔ Нет прав для выполнения этой команды!")
         return
+
     if not USER_LIST:
-        await update.message.reply_text("📂 Список пользователей пуст.")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="📂 Список пользователей пуст.")
         return
-    users_text = "\n".join(map(str, USER_LIST))
-    await update.message.reply_text(f"📜 Список пользователей:\n{users_text}")
+
+    users_text = "
+".join(map(str, USER_LIST))
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"📜 Список пользователей:
+{users_text}")
 
 async def send_to_all(update: Update, context: CallbackContext):
     if update.message.from_user.id != ADMIN_ID:
