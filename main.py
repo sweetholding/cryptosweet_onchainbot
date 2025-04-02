@@ -47,6 +47,8 @@ MIN_HOLDERS = 1000
 MIN_NEW_HOLDERS = 1000
 MAX_TOP10_RATIO = 0.8
 
+EXCLUDED_SYMBOLS = ["BTC", "ETH", "BNB", "XRP", "USDT", "USDC", "DOGE", "ADA", "SOL", "MATIC", "TRX"]
+
 app = Application.builder().token(TOKEN).build()
 
 async def start(update: Update, context: CallbackContext):
@@ -111,9 +113,18 @@ async def check_large_transactions():
                     liquidity = float(token.get("liquidity", {}).get("usd", 0))
                     txns = int(token.get("txns", {}).get("h24", 0))
                     price_change = float(token.get("priceChange", {}).get("h24", 0))
-                    fdv = float(token.get("fdv") or 0)
+                    fdv_raw = token.get("fdv")
+                    try:
+                        fdv = float(fdv_raw)
+                        if fdv < MIN_FDV or fdv > MAX_FDV:
+                            continue
+                    except (ValueError, TypeError):
+                        continue
+                    symbol = token.get("baseToken", {}).get("symbol", "").upper()
+                    if symbol in EXCLUDED_SYMBOLS:
+                        continue
                     avg_txn = volume / txns if txns else 0
-                    if not (MIN_LIQUIDITY <= liquidity <= 1e9 and volume >= MIN_VOLUME_24H and txns >= MIN_TXNS_24H and price_change >= MIN_PRICE_CHANGE_24H and MIN_FDV <= fdv <= MAX_FDV and avg_txn >= MIN_TXN_SIZE_USD):
+                    if not (MIN_LIQUIDITY <= liquidity and volume >= MIN_VOLUME_24H and txns >= MIN_TXNS_24H and price_change >= MIN_PRICE_CHANGE_24H and avg_txn >= MIN_TXN_SIZE_USD):
                         continue
                     token_address = token.get("baseToken", {}).get("address")
                     onchain_data = await get_bitquery_data(token_address)
