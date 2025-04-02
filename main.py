@@ -120,17 +120,22 @@ async def check_large_transactions():
                             continue
                     except (ValueError, TypeError):
                         continue
-                    symbol = token.get("baseToken", {}).get("symbol", "").upper()
+
+                    symbol_raw = token.get("baseToken", {}).get("symbol")
+                    symbol = str(symbol_raw).upper() if symbol_raw else ""
                     if symbol in EXCLUDED_SYMBOLS:
-                        logging.info(f"Пропущен топ-токен по символу: {symbol}")
+                        logging.info(f"⛔ Пропущен топ-токен по символу: {symbol}")
                         continue
+
                     avg_txn = volume / txns if txns else 0
                     if not (MIN_LIQUIDITY <= liquidity and volume >= MIN_VOLUME_24H and txns >= MIN_TXNS_24H and price_change >= MIN_PRICE_CHANGE_24H and avg_txn >= MIN_TXN_SIZE_USD):
                         continue
+
                     token_address = token.get("baseToken", {}).get("address")
                     token_url = token.get("url", "")
                     if token_url in MESSAGE_HISTORY:
                         continue
+
                     onchain_data = await get_bitquery_data(token_address)
                     if not onchain_data:
                         continue
@@ -138,6 +143,7 @@ async def check_large_transactions():
                         onchain_data["new_holders"] < MIN_NEW_HOLDERS or
                         onchain_data["top10_ratio"] >= MAX_TOP10_RATIO):
                         continue
+
                     msg = (
                         f"🚀 *Потенциальная 1000x монета* ({network.upper()})\n"
                         f"💧 Ликвидность: ${liquidity:,.0f}\n"
