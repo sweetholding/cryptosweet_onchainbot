@@ -8,8 +8,8 @@ import asyncio
 from collections import deque
 from datetime import datetime, timezone
 
-# Настройки логирования
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+# Логирование
+logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
 nest_asyncio.apply()
 
 # Telegram настройки
@@ -17,6 +17,7 @@ TOKEN = "7594557278:AAH3JKXfwupIMLqmmzmjYbH3ToSSTUGnmHo"
 CHAT_ID = "423798633"
 ADMIN_ID = 423798633
 USERS_FILE = "users.txt"
+SENT_HISTORY_FILE = "sent.txt"
 
 # Bitquery API
 BITQUERY_API_KEY = "ory_at_q-7dWFwX_AZ0ywxzNaeyXnmEGugaA7qhJVTuEBy_TJ8.-v7__KrOzyePRYY-iF3pVFYYDJ9nnDcNxdWugDfhCMk"
@@ -31,8 +32,18 @@ def save_users():
     with open(USERS_FILE, "w") as f:
         f.write("\n".join(map(str, USER_LIST)))
 
+def load_sent_history():
+    if os.path.exists(SENT_HISTORY_FILE):
+        with open(SENT_HISTORY_FILE, "r") as f:
+            return set(f.read().splitlines())
+    return set()
+
+def save_sent_history(history):
+    with open(SENT_HISTORY_FILE, "w") as f:
+        f.write("\n".join(history))
+
 USER_LIST = load_users()
-MESSAGE_HISTORY = deque(maxlen=100)
+SENT_HISTORY = load_sent_history()
 
 NETWORKS = ["solana", "ethereum", "bsc"]
 MIN_LIQUIDITY = 50000
@@ -91,6 +102,7 @@ async def get_bitquery_data(token_address: str):
     return None
 
 async def check_large_transactions():
+    global SENT_HISTORY
     while True:
         for network in NETWORKS:
             url = f"https://api.dexscreener.com/latest/dex/search?q={network}"
@@ -105,10 +117,19 @@ async def check_large_transactions():
                 continue
             for token in data["pairs"]:
                 try:
+                    symbol_raw = token.get("baseToken", {}).get("symbol")
+                    symbol = str(symbol_raw).upper() if symbol_raw else ""
+                    logging.info(f"🔍 Проверяется токен: {symbol}")
+
+                    if symbol in EXCLUDED_SYMBOLS:
+                        logging.info(f"⛔ Пропущен по символу: {symbol}")
+                        continue
+
                     created_at_timestamp = int(token.get("pairCreatedAt", 0)) / 1000
                     token_age_days = (datetime.now(timezone.utc) - datetime.fromtimestamp(created_at_timestamp, tz=timezone.utc)).days
                     if token_age_days > MAX_TOKEN_AGE_DAYS:
                         continue
+
                     volume = float(token.get("volume", {}).get("h24", 0))
                     liquidity = float(token.get("liquidity", {}).get("usd", 0))
                     txns = int(token.get("txns", {}).get("h24", 0))
@@ -121,19 +142,13 @@ async def check_large_transactions():
                     except (ValueError, TypeError):
                         continue
 
-                    symbol_raw = token.get("baseToken", {}).get("symbol")
-                    symbol = str(symbol_raw).upper() if symbol_raw else ""
-                    if symbol in EXCLUDED_SYMBOLS:
-                        logging.info(f"⛔ Пропущен топ-токен по символу: {symbol}")
-                        continue
-
                     avg_txn = volume / txns if txns else 0
                     if not (MIN_LIQUIDITY <= liquidity and volume >= MIN_VOLUME_24H and txns >= MIN_TXNS_24H and price_change >= MIN_PRICE_CHANGE_24H and avg_txn >= MIN_TXN_SIZE_USD):
                         continue
 
                     token_address = token.get("baseToken", {}).get("address")
                     token_url = token.get("url", "")
-                    if token_url in MESSAGE_HISTORY:
+                    if token_url in SENT_HISTORY:
                         continue
 
                     onchain_data = await get_bitquery_data(token_address)
@@ -162,7 +177,8 @@ async def check_large_transactions():
                             await app.bot.send_message(chat_id=user, text=msg, parse_mode="Markdown")
                         except Exception as e:
                             logging.error(f"Ошибка отправки {user}: {e}")
-                    MESSAGE_HISTORY.append(token_url)
+                    SENT_HISTORY.add(token_url)
+                    save_sent_history(SENT_HISTORY)
                     await asyncio.sleep(2)
                 except Exception as e:
                     logging.error(f"Ошибка токена: {e}")
