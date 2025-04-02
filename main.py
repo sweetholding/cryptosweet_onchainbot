@@ -42,7 +42,7 @@ MIN_VOLUME_24H = 100000
 MIN_TXNS_24H = 500
 MIN_PRICE_CHANGE_24H = 5.0
 MIN_FDV = 1000000
-MAX_FDV = 10000000  # изменено с 50 млн до 10 млн
+MAX_FDV = 10000000
 MAX_TOKEN_AGE_DAYS = 14
 
 app = Application.builder().token(TOKEN).build()
@@ -92,14 +92,18 @@ async def remove_user(update: Update, context: CallbackContext):
         await update.message.reply_text("❌ USER_ID должен быть числом.")
 
 async def list_users(update: Update, context: CallbackContext):
+    global USER_LIST
+    USER_LIST = load_users()
     if update.message.from_user.id != ADMIN_ID:
         await update.message.reply_text("⛔ Нет прав для выполнения этой команды!")
         return
     if not USER_LIST:
         await update.message.reply_text("📂 Список пользователей пуст.")
         return
-    users_text = "\n".join(map(str, USER_LIST))
-    await update.message.reply_text(f"📜 Список пользователей:\n{users_text}")
+    users_text = "
+".join(map(str, USER_LIST))
+    await update.message.reply_text(f"📜 Список пользователей:
+{users_text}")
 
 async def send_to_all(update: Update, context: CallbackContext):
     if update.message.from_user.id != ADMIN_ID:
@@ -181,6 +185,7 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("adduser", add_user))
 app.add_handler(CommandHandler("removeuser", remove_user))
 app.add_handler(CommandHandler("users", list_users))
+app.add_handler(CommandHandler("user", list_users))  # дополнительная команда
 app.add_handler(CommandHandler("sendall", send_to_all))
 
 async def main():
