@@ -42,11 +42,12 @@ MIN_VOLUME_24H = 100000
 MIN_TXNS_24H = 500
 MIN_PRICE_CHANGE_24H = 5.0
 MIN_FDV = 1000000
-MAX_FDV = 10000000  # Максимальная капитализация
-MAX_TOKEN_AGE_DAYS = 14  # Максимальный возраст токена
+MAX_FDV = 10000000  # Максимальная капитализация $10 миллионов
+MAX_TOKEN_AGE_DAYS = 14  # Возраст токенов не более 14 дней
 
 app = Application.builder().token(TOKEN).build()
 
+# Команды для бота
 async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     username = update.effective_user.username or "Неизвестный"
@@ -167,7 +168,8 @@ async def check_large_transactions():
                     base_symbol = token["baseToken"]["symbol"]
                     dex_url = token.get("url", "")
 
-                    if liquidity >= MIN_LIQUIDITY and volume >= MIN_VOLUME_24H and txns >= MIN_TXNS_24H and price_change >= MIN_PRICE_CHANGE_24H:
+                    # Фильтр по капитализации
+                    if liquidity >= MIN_LIQUIDITY and volume >= MIN_VOLUME_24H and txns >= MIN_TXNS_24H and price_change >= MIN_PRICE_CHANGE_24H and fdv <= MAX_FDV:
                         message = (
                             f"🚀 Перспективный токен {base_symbol} ({network.upper()})!\n"
                             f"💧 Ликвидность: ${liquidity:,.0f}\n"
