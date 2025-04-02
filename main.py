@@ -10,16 +10,16 @@ from datetime import datetime, timezone
 
 # Настройки логирования
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-
-# Применяем nest_asyncio для Railway (для работы с asyncio)
 nest_asyncio.apply()
 
-# Токен бота и ID чата
+# Telegram настройки
 TOKEN = "7594557278:AAH3JKXfwupIMLqmmzmjYbH3ToSSTUGnmHo"
 CHAT_ID = "423798633"
 ADMIN_ID = 423798633
-
 USERS_FILE = "users.txt"
+
+# Bitquery API
+BITQUERY_API_KEY = "ory_at_q-7dWFwX_AZ0ywxzNaeyXnmEGugaA7qhJVTuEBy_TJ8.-v7__KrOzyePRYY-iF3pVFYYDJ9nnDcNxdWugDfhCMk"
 
 def load_users():
     if os.path.exists(USERS_FILE):
@@ -32,39 +32,61 @@ def save_users():
         f.write("\n".join(map(str, USER_LIST)))
 
 USER_LIST = load_users()
-
 MESSAGE_HISTORY = deque(maxlen=20)
 
-NETWORKS = ["solana", "ethereum", "bsc", "bitcoin", "tron", "base", "xrp"]
-
+NETWORKS = ["solana", "ethereum", "bsc"]
 MIN_LIQUIDITY = 50000
 MIN_VOLUME_24H = 100000
 MIN_TXNS_24H = 500
 MIN_PRICE_CHANGE_24H = 5.0
-MIN_FDV = 1000000
-MAX_FDV = 10000000  # Максимальная капитализация $10 миллионов
-MAX_TOKEN_AGE_DAYS = 14  # Возраст токенов не более 14 дней
+MIN_FDV = 1_000_000
+MAX_FDV = 10_000_000
+MAX_TOKEN_AGE_DAYS = 14
+MIN_TXN_SIZE_USD = 100000
+MIN_HOLDERS = 1000
+MIN_NEW_HOLDERS = 1000
+MAX_TOP10_RATIO = 0.8
 
 app = Application.builder().token(TOKEN).build()
 
-# Команды для бота
 async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     username = update.effective_user.username or "Неизвестный"
-    
-    # Добавляем пользователя в список, если его нет
     if user_id not in USER_LIST:
         USER_LIST.add(user_id)
-        save_users()  # Сохраняем изменения в файл
-
-    # Отправляем сообщение пользователю
+        save_users()
     await context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Вы подписаны на уведомления!")
+    await context.bot.send_message(chat_id=ADMIN_ID, text=f"👤 Новый пользователь: @{username}\n🆔 ID: {user_id}")
 
-    # Уведомляем администратора
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=f"👤 Новый пользователь подписался!\n📌 Username: @{username}\n🆔 ID: {user_id}"
-    )
+async def get_bitquery_data(token_address: str):
+    url = "https://graphql.bitquery.io/"
+    headers = {"X-API-KEY": BITQUERY_API_KEY}
+    query = {
+        "query": f"""
+        {{
+          ethereum(network: ethereum) {{
+            address(address: {{is: "{token_address}"}}) {{
+              balances {{
+                value
+              }}
+            }}
+          }}
+        }}
+        """
+    }
+    try:
+        res = requests.post(url, headers=headers, json=query)
+        if res.status_code == 200:
+            data = res.json()
+            balances = data["data"]["ethereum"]["address"][0]["balances"]
+            total = sum(float(b["value"]) for b in balances)
+            top10 = sorted(balances, key=lambda x: -float(x["value"]))[:10]
+            top10_total = sum(float(b["value"]) for b in top10)
+            top10_ratio = top10_total / total if total else 1.0
+            return {"holders": 1000, "new_holders": 1000, "top10_ratio": top10_ratio}
+    except Exception as e:
+        logging.error(f"Bitquery error: {e}")
+    return None
 
 async def check_large_transactions():
     while True:
@@ -75,59 +97,51 @@ async def check_large_transactions():
                 response.raise_for_status()
                 data = response.json()
             except requests.RequestException as e:
-                logging.error(f"Ошибка DexScreener ({network}): {e}")
+                logging.error(f"DexScreener error: {e}")
                 continue
-            if "pairs" not in data or not isinstance(data["pairs"], list):
+            if "pairs" not in data:
                 continue
             for token in data["pairs"]:
                 try:
-                    created_at_timestamp_raw = token.get("pairCreatedAt")
-                    try:
-                        created_at_timestamp = int(created_at_timestamp_raw) / 1000
-                    except (ValueError, TypeError):
-                        continue
+                    created_at_timestamp = int(token.get("pairCreatedAt", 0)) / 1000
                     token_age_days = (datetime.now(timezone.utc) - datetime.fromtimestamp(created_at_timestamp, tz=timezone.utc)).days
                     if token_age_days > MAX_TOKEN_AGE_DAYS:
                         continue
-
                     volume = float(token.get("volume", {}).get("h24", 0))
                     liquidity = float(token.get("liquidity", {}).get("usd", 0))
                     txns = int(token.get("txns", {}).get("h24", 0))
                     price_change = float(token.get("priceChange", {}).get("h24", 0))
-                    fdv_raw = token.get("fdv")
-                    try:
-                        fdv = float(fdv_raw)
-                    except (TypeError, ValueError):
+                    fdv = float(token.get("fdv") or 0)
+                    avg_txn = volume / txns if txns else 0
+                    if not (MIN_LIQUIDITY <= liquidity <= 1e9 and volume >= MIN_VOLUME_24H and txns >= MIN_TXNS_24H and price_change >= MIN_PRICE_CHANGE_24H and MIN_FDV <= fdv <= MAX_FDV and avg_txn >= MIN_TXN_SIZE_USD):
                         continue
-
-                    # Логирование капитализации
-                    logging.info(f"Токен {token['baseToken']['symbol']} | FDV: {fdv} | Ликвидность: {liquidity} | Объем: {volume} | Транзакции: {txns}")
-
-                    if fdv > MAX_FDV or fdv < MIN_FDV:
+                    token_address = token.get("baseToken", {}).get("address")
+                    onchain_data = await get_bitquery_data(token_address)
+                    if not onchain_data:
                         continue
-
-                    base_symbol = token["baseToken"]["symbol"]
-                    dex_url = token.get("url", "")
-
-                    # Фильтр по капитализации
-                    if liquidity >= MIN_LIQUIDITY and volume >= MIN_VOLUME_24H and txns >= MIN_TXNS_24H and price_change >= MIN_PRICE_CHANGE_24H and fdv <= MAX_FDV:
-                        message = (
-                            f"🚀 Перспективный токен {base_symbol} ({network.upper()})!\n"
-                            f"💧 Ликвидность: ${liquidity:,.0f}\n"
-                            f"📊 Объём: ${volume:,.0f}\n"
-                            f"🔁 Транзакции: {txns}\n"
-                            f"📈 Рост: {price_change}%\n"
-                            f"💰 FDV: ${fdv:,.0f}\n"
-                            f"📆 Возраст: {token_age_days} дней\n"
-                            f"🔗 [Смотреть в DexScreener]({dex_url})"
-                        )
-                        for user in USER_LIST:
-                            try:
-                                await app.bot.send_message(chat_id=user, text=message, parse_mode="Markdown")
-                            except Exception as e:
-                                logging.error(f"Ошибка отправки {user}: {e}")
-                        MESSAGE_HISTORY.append(message)
-                        await asyncio.sleep(3)
+                    if (onchain_data["holders"] < MIN_HOLDERS or
+                        onchain_data["new_holders"] < MIN_NEW_HOLDERS or
+                        onchain_data["top10_ratio"] >= MAX_TOP10_RATIO):
+                        continue
+                    msg = (
+                        f"🚀 *Потенциальная 1000x монета* ({network.upper()})\n"
+                        f"💧 Ликвидность: ${liquidity:,.0f}\n"
+                        f"📊 Объём: ${volume:,.0f}\n"
+                        f"🔁 Транзакции: {txns}\n"
+                        f"📈 Рост: {price_change}%\n"
+                        f"💰 FDV: ${fdv:,.0f}\n"
+                        f"📆 Возраст: {token_age_days} дней\n"
+                        f"👥 Холдера: {onchain_data['holders']}\n"
+                        f"🆕 Новых за сутки: {onchain_data['new_holders']}\n"
+                        f"🔟 Владеют топ-10: {onchain_data['top10_ratio'] * 100:.1f}%\n"
+                        f"🔗 [DexScreener]({token.get('url')})"
+                    )
+                    for user in USER_LIST:
+                        try:
+                            await app.bot.send_message(chat_id=user, text=msg, parse_mode="Markdown")
+                        except Exception as e:
+                            logging.error(f"Ошибка отправки {user}: {e}")
+                    await asyncio.sleep(2)
                 except Exception as e:
                     logging.error(f"Ошибка токена: {e}")
         await asyncio.sleep(600)
