@@ -17,128 +17,101 @@ nest_asyncio.apply()
 # Токен бота и ID чата
 TOKEN = "7594557278:AAH3JKXfwupIMLqmmzmjYbH3ToSSTUGnmHo"
 CHAT_ID = "423798633"
-ADMIN_ID = 423798633  # Твой Telegram ID для уведомлений
+ADMIN_ID = 423798633
 
-# Путь к файлу с пользователями
 USERS_FILE = "users.txt"
 
-# Загрузка пользователей из файла
 def load_users():
     if os.path.exists(USERS_FILE):
         with open(USERS_FILE, "r") as f:
             return set(map(int, f.read().splitlines()))
     return set()
 
-# Сохранение пользователей в файл
 def save_users():
     with open(USERS_FILE, "w") as f:
         f.write("\n".join(map(str, USER_LIST)))
 
-# Список подписанных пользователей
 USER_LIST = load_users()
 
-# История последних 20 сообщений
 MESSAGE_HISTORY = deque(maxlen=20)
 
-# Сети для отслеживания крупных сделок
 NETWORKS = ["solana", "ethereum", "bsc", "bitcoin", "tron", "base", "xrp"]
 
-# Пороговые значения фильтров
 MIN_LIQUIDITY = 50000
 MIN_VOLUME_24H = 100000
 MIN_TXNS_24H = 500
-MIN_PRICE_CHANGE_24H = 5.0  # В процентах
+MIN_PRICE_CHANGE_24H = 5.0
 MIN_FDV = 1000000
-MAX_FDV = 50000000
+MAX_FDV = 10000000  # изменено с 50 млн до 10 млн
 MAX_TOKEN_AGE_DAYS = 14
 
-# Инициализация бота
 app = Application.builder().token(TOKEN).build()
 
-# Команда /start (пользователь подписывается)
 async def start(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     username = update.message.from_user.username or "Неизвестный"
-
     USER_LIST.add(user_id)
     save_users()
-
     await update.message.reply_text("✅ Вы подписаны на уведомления!")
-
     await context.bot.send_message(
         chat_id=ADMIN_ID,
-        text=f"👤 Новый пользователь подписался!\n"
-             f"📌 Username: @{username}\n"
-             f"🆔 ID: {user_id}"
+        text=f"👤 Новый пользователь подписался!\n📌 Username: @{username}\n🆔 ID: {user_id}"
     )
 
-# Команда /adduser (админ вручную добавляет пользователя в рассылку)
 async def add_user(update: Update, context: CallbackContext):
     if update.message.from_user.id != ADMIN_ID:
         await update.message.reply_text("⛔ У вас нет прав для выполнения этой команды!")
         return
-
     if not context.args:
         await update.message.reply_text("❌ Использование: /adduser USER_ID")
         return
-
     try:
         user_id = int(context.args[0])
         USER_LIST.add(user_id)
         save_users()
         await update.message.reply_text(f"✅ Пользователь {user_id} добавлен в рассылку.")
     except ValueError:
-        await update.message.reply_text("❌ Ошибка: USER_ID должен быть числом.")
+        await update.message.reply_text("❌ USER_ID должен быть числом.")
 
-# Команда /removeuser (удаление пользователя)
 async def remove_user(update: Update, context: CallbackContext):
     if update.message.from_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ У вас нет прав для выполнения этой команды!")
+        await update.message.reply_text("⛔ Нет прав для выполнения этой команды!")
         return
-
     if not context.args:
         await update.message.reply_text("❌ Использование: /removeuser USER_ID")
         return
-
     try:
         user_id = int(context.args[0])
         if user_id in USER_LIST:
             USER_LIST.remove(user_id)
             save_users()
-            await update.message.reply_text(f"🗑 Пользователь {user_id} удалён из рассылки.")
+            await update.message.reply_text(f"🗑 Пользователь {user_id} удалён.")
         else:
-            await update.message.reply_text("❌ Такого пользователя нет в списке.")
+            await update.message.reply_text("❌ Такого пользователя нет.")
     except ValueError:
-        await update.message.reply_text("❌ Ошибка: USER_ID должен быть числом.")
+        await update.message.reply_text("❌ USER_ID должен быть числом.")
 
-# Команда /users (просмотр всех добавленных пользователей)
 async def list_users(update: Update, context: CallbackContext):
     if update.message.from_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ У вас нет прав для выполнения этой команды!")
+        await update.message.reply_text("⛔ Нет прав для выполнения этой команды!")
         return
-
     if not USER_LIST:
         await update.message.reply_text("📂 Список пользователей пуст.")
         return
-
     users_text = "\n".join(map(str, USER_LIST))
     await update.message.reply_text(f"📜 Список пользователей:\n{users_text}")
 
-# Команда /sendall (массовая рассылка)
 async def send_to_all(update: Update, context: CallbackContext):
     if update.message.from_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ У вас нет прав для выполнения этой команды!")
+        await update.message.reply_text("⛔ Нет прав для выполнения этой команды!")
         return
-
     if not USER_LIST:
-        await update.message.reply_text("❌ В базе нет пользователей для рассылки!")
+        await update.message.reply_text("❌ Нет пользователей для рассылки!")
         return
-
     message = " ".join(context.args)
     if not message:
-        await update.message.reply_text("❌ Введите сообщение после команды!")
+        await update.message.reply_text("❌ Введите сообщение!")
         return
-
     count = 0
     for user in USER_LIST:
         try:
@@ -146,10 +119,8 @@ async def send_to_all(update: Update, context: CallbackContext):
             count += 1
         except Exception as e:
             logging.error(f"Ошибка при отправке пользователю {user}: {e}")
-
     await update.message.reply_text(f"✅ Сообщение отправлено {count} пользователям!")
 
-# Проверка и фильтрация перспективных токенов
 async def check_large_transactions():
     while True:
         for network in NETWORKS:
@@ -159,72 +130,61 @@ async def check_large_transactions():
                 response.raise_for_status()
                 data = response.json()
             except requests.RequestException as e:
-                logging.error(f"Ошибка запроса к DexScreener ({network}): {e}")
+                logging.error(f"Ошибка DexScreener ({network}): {e}")
                 continue
-
             if "pairs" not in data or not isinstance(data["pairs"], list):
-                logging.warning(f"⚠️ Некорректный ответ от API для {network}: {data}")
                 continue
-
             for token in data["pairs"]:
                 try:
                     created_at_timestamp_raw = token.get("pairCreatedAt")
                     if not created_at_timestamp_raw or created_at_timestamp_raw == 0:
-                        continue  # жёсткая фильтрация: пропускаем токены без даты создания пары
-
+                        continue
                     created_at_timestamp = created_at_timestamp_raw / 1000
                     token_age_days = (datetime.now(timezone.utc) - datetime.fromtimestamp(created_at_timestamp, tz=timezone.utc)).days
+                    if token_age_days > MAX_TOKEN_AGE_DAYS:
+                        continue
 
                     volume = float(token.get("volume", {}).get("h24", 0))
                     liquidity = float(token.get("liquidity", {}).get("usd", 0))
                     txns = int(token.get("txns", {}).get("h24", 0))
                     price_change = float(token.get("priceChange", {}).get("h24", 0))
                     fdv = float(token.get("fdv", 0))
+                    if fdv > MAX_FDV or fdv < MIN_FDV:
+                        continue
+
                     base_symbol = token["baseToken"]["symbol"]
                     dex_url = token.get("url", "")
 
-                    if (liquidity >= MIN_LIQUIDITY and
-                        volume >= MIN_VOLUME_24H and
-                        txns >= MIN_TXNS_24H and
-                        price_change >= MIN_PRICE_CHANGE_24H and
-                        MIN_FDV <= fdv <= MAX_FDV and
-                        token_age_days <= MAX_TOKEN_AGE_DAYS):
-
+                    if liquidity >= MIN_LIQUIDITY and volume >= MIN_VOLUME_24H and txns >= MIN_TXNS_24H and price_change >= MIN_PRICE_CHANGE_24H:
                         message = (
-                            f"🚀 Найден перспективный токен {base_symbol} ({network.upper()})!\n"
+                            f"🚀 Перспективный токен {base_symbol} ({network.upper()})!\n"
                             f"💧 Ликвидность: ${liquidity:,.0f}\n"
-                            f"📊 Объём (24ч): ${volume:,.0f}\n"
-                            f"🔁 Транзакций (24ч): {txns}\n"
-                            f"📈 Рост цены (24ч): {price_change}%\n"
+                            f"📊 Объём: ${volume:,.0f}\n"
+                            f"🔁 Транзакции: {txns}\n"
+                            f"📈 Рост: {price_change}%\n"
                             f"💰 FDV: ${fdv:,.0f}\n"
-                            f"📆 Возраст токена: {token_age_days} дней\n"
-                            f"🔗 [Смотреть на DexScreener]({dex_url})"
+                            f"📆 Возраст: {token_age_days} дней\n"
+                            f"🔗 [Смотреть в DexScreener]({dex_url})"
                         )
-
                         for user in USER_LIST:
                             try:
                                 await app.bot.send_message(chat_id=user, text=message, parse_mode="Markdown")
                             except Exception as e:
-                                logging.error(f"Ошибка при отправке пользователю {user}: {e}")
-
+                                logging.error(f"Ошибка отправки {user}: {e}")
                         MESSAGE_HISTORY.append(message)
                         await asyncio.sleep(3)
-
                 except Exception as e:
-                    logging.error(f"Ошибка обработки токена в сети {network}: {e}")
-
+                    logging.error(f"Ошибка токена: {e}")
         await asyncio.sleep(600)
 
-# Регистрация команд
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("adduser", add_user))
 app.add_handler(CommandHandler("removeuser", remove_user))
 app.add_handler(CommandHandler("users", list_users))
 app.add_handler(CommandHandler("sendall", send_to_all))
 
-# Функция основного запуска
 async def main():
-    logging.info("✅ Бот запущен и работает")
+    logging.info("✅ Бот запущен")
     asyncio.create_task(check_large_transactions())
     await app.initialize()
     await app.start()
@@ -237,4 +197,4 @@ if __name__ == "__main__":
         asyncio.set_event_loop(loop)
         loop.run_until_complete(main())
     except RuntimeError:
-        logging.error("Ошибка при запуске бота!")
+        logging.error("Ошибка запуска")
