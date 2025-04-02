@@ -51,83 +51,20 @@ app = Application.builder().token(TOKEN).build()
 async def start(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     username = update.effective_user.username or "Неизвестный"
-    USER_LIST.add(user_id)
-    save_users()
+    
+    # Добавляем пользователя в список, если его нет
+    if user_id not in USER_LIST:
+        USER_LIST.add(user_id)
+        save_users()  # Сохраняем изменения в файл
+
+    # Отправляем сообщение пользователю
     await context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Вы подписаны на уведомления!")
+
+    # Уведомляем администратора
     await context.bot.send_message(
         chat_id=ADMIN_ID,
         text=f"👤 Новый пользователь подписался!\n📌 Username: @{username}\n🆔 ID: {user_id}"
     )
-
-async def add_user(update: Update, context: CallbackContext):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ У вас нет прав для выполнения этой команды!")
-        return
-    if not context.args:
-        await update.message.reply_text("❌ Использование: /adduser USER_ID")
-        return
-    try:
-        user_id = int(context.args[0])
-        USER_LIST.add(user_id)
-        save_users()
-        await update.message.reply_text(f"✅ Пользователь {user_id} добавлен в рассылку.")
-    except ValueError:
-        await update.message.reply_text("❌ USER_ID должен быть числом.")
-
-async def remove_user(update: Update, context: CallbackContext):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ Нет прав для выполнения этой команды!")
-        return
-    if not context.args:
-        await update.message.reply_text("❌ Использование: /removeuser USER_ID")
-        return
-    try:
-        user_id = int(context.args[0])
-        if user_id in USER_LIST:
-            USER_LIST.remove(user_id)
-            save_users()
-            await update.message.reply_text(f"🗑 Пользователь {user_id} удалён.")
-        else:
-            await update.message.reply_text("❌ Такого пользователя нет.")
-    except ValueError:
-        await update.message.reply_text("❌ USER_ID должен быть числом.")
-
-async def list_users(update: Update, context: CallbackContext):
-    global USER_LIST
-    USER_LIST = load_users()
-    user_id = update.effective_user.id
-    logging.info(f"Команда /users от пользователя ID: {user_id}")
-
-    if user_id != ADMIN_ID:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="⛔ Нет прав для выполнения этой команды!")
-        return
-
-    if not USER_LIST:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="📂 Список пользователей пуст.")
-        return
-
-    users_text = "\n".join(map(str, USER_LIST))
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"📜 Список пользователей:\n{users_text}")
-
-async def send_to_all(update: Update, context: CallbackContext):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ Нет прав для выполнения этой команды!")
-        return
-    if not USER_LIST:
-        await update.message.reply_text("❌ Нет пользователей для рассылки!")
-        return
-    message = " ".join(context.args)
-    if not message:
-        await update.message.reply_text("❌ Введите сообщение!")
-        return
-    count = 0
-    for user in USER_LIST:
-        try:
-            await context.bot.send_message(chat_id=user, text=message)
-            count += 1
-        except Exception as e:
-            logging.error(f"Ошибка при отправке пользователю {user}: {e}")
-    await update.message.reply_text(f"✅ Сообщение отправлено {count} пользователям!")
 
 async def check_large_transactions():
     while True:
@@ -162,6 +99,10 @@ async def check_large_transactions():
                         fdv = float(fdv_raw)
                     except (TypeError, ValueError):
                         continue
+
+                    # Логирование капитализации
+                    logging.info(f"Токен {token['baseToken']['symbol']} | FDV: {fdv} | Ликвидность: {liquidity} | Объем: {volume} | Транзакции: {txns}")
+
                     if fdv > MAX_FDV or fdv < MIN_FDV:
                         continue
 
@@ -192,11 +133,6 @@ async def check_large_transactions():
         await asyncio.sleep(600)
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("adduser", add_user))
-app.add_handler(CommandHandler("removeuser", remove_user))
-app.add_handler(CommandHandler("users", list_users))
-app.add_handler(CommandHandler("user", list_users))
-app.add_handler(CommandHandler("sendall", send_to_all))
 
 async def main():
     logging.info("✅ Бот запущен")
