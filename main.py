@@ -100,10 +100,8 @@ async def list_users(update: Update, context: CallbackContext):
     if not USER_LIST:
         await update.message.reply_text("📂 Список пользователей пуст.")
         return
-    users_text = "
-".join(map(str, USER_LIST))
-    await update.message.reply_text(f"📜 Список пользователей:
-{users_text}")
+    users_text = "\n".join(map(str, USER_LIST))
+    await update.message.reply_text(f"📜 Список пользователей:\n{users_text}")
 
 async def send_to_all(update: Update, context: CallbackContext):
     if update.message.from_user.id != ADMIN_ID:
@@ -141,9 +139,10 @@ async def check_large_transactions():
             for token in data["pairs"]:
                 try:
                     created_at_timestamp_raw = token.get("pairCreatedAt")
-                    if not created_at_timestamp_raw or created_at_timestamp_raw == 0:
+                    try:
+                        created_at_timestamp = int(created_at_timestamp_raw) / 1000
+                    except (ValueError, TypeError):
                         continue
-                    created_at_timestamp = created_at_timestamp_raw / 1000
                     token_age_days = (datetime.now(timezone.utc) - datetime.fromtimestamp(created_at_timestamp, tz=timezone.utc)).days
                     if token_age_days > MAX_TOKEN_AGE_DAYS:
                         continue
@@ -185,7 +184,7 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("adduser", add_user))
 app.add_handler(CommandHandler("removeuser", remove_user))
 app.add_handler(CommandHandler("users", list_users))
-app.add_handler(CommandHandler("user", list_users))  # дополнительная команда
+app.add_handler(CommandHandler("user", list_users))
 app.add_handler(CommandHandler("sendall", send_to_all))
 
 async def main():
