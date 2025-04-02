@@ -32,7 +32,7 @@ def save_users():
         f.write("\n".join(map(str, USER_LIST)))
 
 USER_LIST = load_users()
-MESSAGE_HISTORY = deque(maxlen=20)
+MESSAGE_HISTORY = deque(maxlen=100)
 
 NETWORKS = ["solana", "ethereum", "bsc"]
 MIN_LIQUIDITY = 50000
@@ -122,11 +122,15 @@ async def check_large_transactions():
                         continue
                     symbol = token.get("baseToken", {}).get("symbol", "").upper()
                     if symbol in EXCLUDED_SYMBOLS:
+                        logging.info(f"Пропущен топ-токен по символу: {symbol}")
                         continue
                     avg_txn = volume / txns if txns else 0
                     if not (MIN_LIQUIDITY <= liquidity and volume >= MIN_VOLUME_24H and txns >= MIN_TXNS_24H and price_change >= MIN_PRICE_CHANGE_24H and avg_txn >= MIN_TXN_SIZE_USD):
                         continue
                     token_address = token.get("baseToken", {}).get("address")
+                    token_url = token.get("url", "")
+                    if token_url in MESSAGE_HISTORY:
+                        continue
                     onchain_data = await get_bitquery_data(token_address)
                     if not onchain_data:
                         continue
@@ -145,13 +149,14 @@ async def check_large_transactions():
                         f"👥 Холдера: {onchain_data['holders']}\n"
                         f"🆕 Новых за сутки: {onchain_data['new_holders']}\n"
                         f"🔟 Владеют топ-10: {onchain_data['top10_ratio'] * 100:.1f}%\n"
-                        f"🔗 [DexScreener]({token.get('url')})"
+                        f"🔗 [DexScreener]({token_url})"
                     )
                     for user in USER_LIST:
                         try:
                             await app.bot.send_message(chat_id=user, text=msg, parse_mode="Markdown")
                         except Exception as e:
                             logging.error(f"Ошибка отправки {user}: {e}")
+                    MESSAGE_HISTORY.append(token_url)
                     await asyncio.sleep(2)
                 except Exception as e:
                     logging.error(f"Ошибка токена: {e}")
