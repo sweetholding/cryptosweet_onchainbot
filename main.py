@@ -48,18 +48,18 @@ MAX_TOKEN_AGE_DAYS = 14
 app = Application.builder().token(TOKEN).build()
 
 async def start(update: Update, context: CallbackContext):
-    user_id = update.message.from_user.id
-    username = update.message.from_user.username or "Неизвестный"
+    user_id = update.effective_user.id
+    username = update.effective_user.username or "Неизвестный"
     USER_LIST.add(user_id)
     save_users()
-    await update.message.reply_text("✅ Вы подписаны на уведомления!")
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Вы подписаны на уведомления!")
     await context.bot.send_message(
         chat_id=ADMIN_ID,
         text=f"👤 Новый пользователь подписался!\n📌 Username: @{username}\n🆔 ID: {user_id}"
     )
 
 async def add_user(update: Update, context: CallbackContext):
-    if update.message.from_user.id != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("⛔ У вас нет прав для выполнения этой команды!")
         return
     if not context.args:
@@ -74,7 +74,7 @@ async def add_user(update: Update, context: CallbackContext):
         await update.message.reply_text("❌ USER_ID должен быть числом.")
 
 async def remove_user(update: Update, context: CallbackContext):
-    if update.message.from_user.id != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("⛔ Нет прав для выполнения этой команды!")
         return
     if not context.args:
@@ -105,13 +105,11 @@ async def list_users(update: Update, context: CallbackContext):
         await context.bot.send_message(chat_id=update.effective_chat.id, text="📂 Список пользователей пуст.")
         return
 
-    users_text = "
-".join(map(str, USER_LIST))
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"📜 Список пользователей:
-{users_text}")
+    users_text = "\n".join(map(str, USER_LIST))
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"📜 Список пользователей:\n{users_text}")
 
 async def send_to_all(update: Update, context: CallbackContext):
-    if update.message.from_user.id != ADMIN_ID:
+    if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("⛔ Нет прав для выполнения этой команды!")
         return
     if not USER_LIST:
@@ -158,7 +156,11 @@ async def check_large_transactions():
                     liquidity = float(token.get("liquidity", {}).get("usd", 0))
                     txns = int(token.get("txns", {}).get("h24", 0))
                     price_change = float(token.get("priceChange", {}).get("h24", 0))
-                    fdv = float(token.get("fdv", 0))
+                    fdv_raw = token.get("fdv")
+                    try:
+                        fdv = float(fdv_raw)
+                    except (TypeError, ValueError):
+                        continue
                     if fdv > MAX_FDV or fdv < MIN_FDV:
                         continue
 
