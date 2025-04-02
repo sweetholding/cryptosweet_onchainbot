@@ -42,8 +42,8 @@ MIN_VOLUME_24H = 100000
 MIN_TXNS_24H = 500
 MIN_PRICE_CHANGE_24H = 5.0
 MIN_FDV = 1000000
-MAX_FDV = 10000000
-MAX_TOKEN_AGE_DAYS = 14
+MAX_FDV = 10000000  # Максимальная капитализация
+MAX_TOKEN_AGE_DAYS = 14  # Максимальный возраст токена
 
 app = Application.builder().token(TOKEN).build()
 
