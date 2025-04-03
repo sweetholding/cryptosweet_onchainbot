@@ -8,13 +8,14 @@ from telegram.ext import Application, CommandHandler, CallbackContext
 from datetime import datetime, timezone
 
 # Telegram настройки
-TOKEN = "7594557278:AAH3JKXfwupIMLqmmzmjYbH3ToSSTUGnmHo"
+TOKEN = "7594557278:AAH3JKXfwupIMLqmmzmjYvH3ToSSTUGnmHo"
 CHAT_ID = "423798633"
 ADMIN_ID = 423798633
 USERS_FILE = "users.txt"
 
 # API ключи
 COVALENT_API_KEY = "cqt_rQQcYJYvFfxbqpM4HTQvgbX9JcCw"
+BITQUERY_API_KEY = "ory_at_q-7dWFwX_AZ0ywxzNaeyXnmEGugaA7qhJVTuEBy_TJ8.-v7__KrOzyePRYY-iF3pVFYYDJ9nnDcNxdWugDfhCMk"
 
 # Фильтры токенов
 MIN_FDV = 1_000_000
@@ -23,6 +24,7 @@ MIN_GROWTH_PERCENT = 5.0
 MIN_TXNS = 500
 MIN_HOLDERS = 1000
 MIN_NEW_HOLDERS = 1000
+MIN_BIG_BUYS = 10
 EXCLUDED_SYMBOLS = ["BTC", "ETH", "BNB", "XRP", "USDT", "USDC", "DOGE", "ADA", "SOL", "MATIC", "TRX"]
 
 nest_asyncio.apply()
@@ -30,7 +32,6 @@ logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
 
 app = Application.builder().token(TOKEN).build()
 
-# Работа с пользователями
 if not os.path.exists(USERS_FILE):
     with open(USERS_FILE, "w") as f:
         pass
@@ -52,14 +53,12 @@ async def start(update: Update, context: CallbackContext):
         save_users(USER_LIST)
     await context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Вы подписаны на уведомления!")
 
-# Команда /users — только для администратора
 async def list_users(update: Update, context: CallbackContext):
     if update.effective_user.id != ADMIN_ID:
         return
     users_text = "\n".join([str(uid) for uid in USER_LIST])
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f"👥 Подписчики:\n{users_text}")
 
-# Команда /remove <user_id> — удалить пользователя
 async def remove_user(update: Update, context: CallbackContext):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -74,9 +73,35 @@ async def remove_user(update: Update, context: CallbackContext):
     except:
         await context.bot.send_message(chat_id=update.effective_chat.id, text="⚠️ Укажите ID пользователя. Пример: /remove 123456")
 
-# Функция получения токенов с Covalent
+async def fetch_bitquery_big_buys(contract: str):
+    url = "https://graphql.bitquery.io/"
+    headers = {"X-API-KEY": BITQUERY_API_KEY}
+    query = {
+        "query": f"""
+        {{
+          ethereum(network: ethereum) {{
+            smartContractCalls(
+              smartContractAddress: {{is: \"{contract}\"}},
+              options: {{desc: \"block.timestamp.unixtime\", limit: 100}},
+              date: {{since: \"1 day ago\"}}
+            ) {{
+              amount
+            }}
+          }}
+        }}
+        """
+    }
+    try:
+        res = requests.post(url, headers=headers, json=query)
+        data = res.json()
+        calls = data["data"]["ethereum"]["smartContractCalls"]
+        big_buys = [float(x["amount"] or 0) for x in calls if x.get("amount") and float(x["amount"]) >= 50000]
+        return len(big_buys)
+    except:
+        return 0
+
 async def fetch_tokens_from_covalent():
-    chains = ["eth-mainnet", "bsc-mainnet", "base-mainnet", "solana-mainnet"]
+    chains = ["eth-mainnet", "bsc-mainnet", "base-mainnet"]
     headers = {"accept": "application/json"}
     results = []
 
@@ -105,13 +130,19 @@ async def fetch_tokens_from_covalent():
                 if growth < MIN_GROWTH_PERCENT:
                     continue
 
-                dex_url = f"https://dexscreener.com/{chain.replace('-mainnet','')}/{token.get('contract_address')}"
+                contract = token.get("contract_address")
+                big_buys = await fetch_bitquery_big_buys(contract)
+                if big_buys < MIN_BIG_BUYS:
+                    continue
+
+                dex_url = f"https://dexscreener.com/{chain.replace('-mainnet','')}/{contract}"
                 results.append({
                     "symbol": symbol,
                     "fdv": fdv,
                     "holders": holders,
                     "growth": growth,
-                    "url": dex_url
+                    "url": dex_url,
+                    "big_buys": big_buys
                 })
         except Exception as e:
             logging.error(f"Ошибка Covalent ({chain}): {e}")
@@ -126,6 +157,7 @@ async def check_tokens():
                 f"🚀 *Новый токен найден*\n"
                 f"💰 Капитализация: ${token['fdv']:,.0f}\n"
                 f"📈 Рост: {token['growth']}%\n"
+                f"🧠 Покупок >$50K: {token['big_buys']}\n"
                 f"👥 Холдеров: {token['holders']}\n"
                 f"🔗 [Смотреть токен]({token['url']})"
             )
