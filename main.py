@@ -1,189 +1,126 @@
-import os
-import logging
-import nest_asyncio
-import requests
-import asyncio
+import requests, time, re, threading
+from bs4 import BeautifulSoup
 from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackContext
-from datetime import datetime, timezone
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# Telegram настройки
-TOKEN = "7594557278:AAH3JKXfwupIMLqmmzmjYvH3ToSSTUGnmHo"
-CHAT_ID = "423798633"
+TOKEN = "7594557278:AAHkeOZN2bsn4XjtoC-7zQI3yrcRFHA1gjs"
 ADMIN_ID = 423798633
 USERS_FILE = "users.txt"
 
-# API ключи
-COVALENT_API_KEY = "cqt_rQQcYJYvFfxbqpM4HTQvgbX9JcCw"
-BITQUERY_API_KEY = "ory_at_q-7dWFwX_AZ0ywxzNaeyXnmEGugaA7qhJVTuEBy_TJ8.-v7__KrOzyePRYY-iF3pVFYYDJ9nnDcNxdWugDfhCMk"
-
-# Фильтры токенов
-MIN_FDV = 1_000_000
-MAX_FDV = 10_000_000
-MIN_GROWTH_PERCENT = 5.0
-MIN_TXNS = 500
-MIN_HOLDERS = 1000
-MIN_NEW_HOLDERS = 1000
-MIN_BIG_BUYS = 10
-EXCLUDED_SYMBOLS = ["BTC", "ETH", "BNB", "XRP", "USDT", "USDC", "DOGE", "ADA", "SOL", "MATIC", "TRX"]
-
-nest_asyncio.apply()
-logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
-
-app = Application.builder().token(TOKEN).build()
-
-if not os.path.exists(USERS_FILE):
-    with open(USERS_FILE, "w") as f:
-        pass
+THRESHOLDS = {"BTC": 2_000_000, "ETH": 1_000_000, "SOL": 250_000}
+TX_CACHE = []
+DEX_CACHE = []
+last_check = ""
 
 def load_users():
-    with open(USERS_FILE, "r") as f:
-        return set(map(int, f.read().splitlines()))
+    try:
+        with open(USERS_FILE, "r") as f:
+            return set(line.strip() for line in f)
+    except:
+        return set()
 
 def save_users(users):
     with open(USERS_FILE, "w") as f:
-        f.write("\n".join(map(str, users)))
+        for u in users:
+            f.write(str(u) + "\n")
 
-USER_LIST = load_users()
+users = load_users()
 
-async def start(update: Update, context: CallbackContext):
-    user_id = update.effective_user.id
-    if user_id not in USER_LIST:
-        USER_LIST.add(user_id)
-        save_users(USER_LIST)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="✅ Вы подписаны на уведомления!")
+def send_telegram_message(text):
+    for uid in users:
+        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+                      data={"chat_id": uid, "text": text, "parse_mode": "HTML"})
 
-async def list_users(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id not in users:
+        users.add(user_id)
+        save_users(users)
+    await context.bot.send_message(chat_id=update.effective_chat.id,
+        text="👋 Привет! Я отслеживаю китов и памп токены. Жди сигналы тут!")
+
+async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    users_text = "\n".join([str(uid) for uid in USER_LIST])
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"👥 Подписчики:\n{users_text}")
+    msg = "👥 Подписчики:\n" + "\n".join(users)
+    await update.message.reply_text(msg)
 
-async def remove_user(update: Update, context: CallbackContext):
+async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
-    try:
-        uid = int(context.args[0])
-        if uid in USER_LIST:
-            USER_LIST.remove(uid)
-            save_users(USER_LIST)
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ Пользователь {uid} удалён.")
+    if context.args:
+        user_id = context.args[0]
+        if user_id in users:
+            users.remove(user_id)
+            save_users(users)
+            await update.message.reply_text(f"✅ Пользователь {user_id} удалён.")
         else:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"❌ Пользователь {uid} не найден.")
-    except:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="⚠️ Укажите ID пользователя. Пример: /remove 123456")
+            await update.message.reply_text("❌ Пользователь не найден.")
+    else:
+        await update.message.reply_text("⚠️ Введи ID: /kick 123456")
 
-async def fetch_bitquery_big_buys(contract: str):
-    url = "https://graphql.bitquery.io/"
-    headers = {"X-API-KEY": BITQUERY_API_KEY}
-    query = {
-        "query": f"""
-        {{
-          ethereum(network: ethereum) {{
-            smartContractCalls(
-              smartContractAddress: {{is: \"{contract}\"}},
-              options: {{desc: \"block.timestamp.unixtime\", limit: 100}},
-              date: {{since: \"1 day ago\"}}
-            ) {{
-              amount
-            }}
-          }}
-        }}
-        """
-    }
-    try:
-        res = requests.post(url, headers=headers, json=query)
-        data = res.json()
-        calls = data["data"]["ethereum"]["smartContractCalls"]
-        big_buys = [float(x["amount"] or 0) for x in calls if x.get("amount") and float(x["amount"]) >= 50000]
-        return len(big_buys)
-    except:
-        return 0
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = f"📊 Бот работает\n👥 Пользователей: {len(users)}\n⏰ Последняя проверка: {last_check}"
+    await update.message.reply_text(msg)
 
-async def fetch_tokens_from_covalent():
-    chains = ["eth-mainnet", "bsc-mainnet", "base-mainnet"]
-    headers = {"accept": "application/json"}
-    results = []
+def fetch_whale_alert_tweets():
+    url = "https://nitter.net/whale_alert"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    r = requests.get(url, headers=headers, timeout=10)
+    soup = BeautifulSoup(r.text, "html.parser")
+    tweets = soup.find_all("div", class_="timeline-item")
+    return [t.find("div", class_="tweet-content media-body").text.strip() for t in tweets[:15]]
 
-    for chain in chains:
-        url = f"https://api.covalenthq.com/v1/{chain}/tokens/?key={COVALENT_API_KEY}"
-        try:
-            res = requests.get(url, headers=headers)
-            data = res.json()
-            tokens = data.get("data", {}).get("items", [])
-            for token in tokens:
-                symbol = token.get("contract_ticker_symbol", "").upper()
-                if symbol in EXCLUDED_SYMBOLS:
-                    continue
+def extract_tx_info(tweet):
+    match = re.search(r"Transferred (\$[\d,.]+) \((\d+(?:\.\d+)?) (\w+)\)", tweet)
+    if match:
+        usd_str, _, token = match.groups()
+        usd = float(usd_str.replace("$", "").replace(",", ""))
+        return usd, token
+    return None, None
 
-                fdv = token.get("market_cap_usd")
-                if not fdv or fdv < MIN_FDV or fdv > MAX_FDV:
-                    continue
-
-                holders = token.get("holders_count", 0)
-                if holders < MIN_HOLDERS:
-                    continue
-
-                growth = token.get("pretty_24h_percent_change", 0)
-                if isinstance(growth, str):
-                    growth = float(growth.replace("%", "").replace(",", ""))
-                if growth < MIN_GROWTH_PERCENT:
-                    continue
-
-                contract = token.get("contract_address")
-                big_buys = await fetch_bitquery_big_buys(contract)
-                if big_buys < MIN_BIG_BUYS:
-                    continue
-
-                dex_url = f"https://dexscreener.com/{chain.replace('-mainnet','')}/{contract}"
-                results.append({
-                    "symbol": symbol,
-                    "fdv": fdv,
-                    "holders": holders,
-                    "growth": growth,
-                    "url": dex_url,
-                    "big_buys": big_buys
-                })
-        except Exception as e:
-            logging.error(f"Ошибка Covalent ({chain}): {e}")
-    return results
-
-async def check_tokens():
+def monitor_whale():
+    global last_check
     while True:
-        logging.info("🔄 Поиск токенов...")
-        tokens = await fetch_tokens_from_covalent()
-        for token in tokens:
-            msg = (
-                f"🚀 *Новый токен найден*\n"
-                f"💰 Капитализация: ${token['fdv']:,.0f}\n"
-                f"📈 Рост: {token['growth']}%\n"
-                f"🧠 Покупок >$50K: {token['big_buys']}\n"
-                f"👥 Холдеров: {token['holders']}\n"
-                f"🔗 [Смотреть токен]({token['url']})"
-            )
-            for user_id in USER_LIST:
-                try:
-                    await app.bot.send_message(chat_id=user_id, text=msg, parse_mode="Markdown")
-                except Exception as e:
-                    logging.error(f"Ошибка отправки {user_id}: {e}")
-        await asyncio.sleep(600)
+        try:
+            tweets = fetch_whale_alert_tweets()
+            for tweet in tweets:
+                usd, token = extract_tx_info(tweet)
+                if token in THRESHOLDS and usd and usd >= THRESHOLDS[token]:
+                    TX_CACHE.append((token, usd, tweet))
+            if len(TX_CACHE) >= 5:
+                text = f"🐋 Обнаружено 5+ крупных транзакций:\n"
+                for tx in TX_CACHE:
+                    text += f"\n💰 {tx[0]} — ${int(tx[1]):,}\n🔹 {tx[2][:120]}..."
+                send_telegram_message(text)
+                TX_CACHE.clear()
+            last_check = time.strftime('%Y-%m-%d %H:%M:%S')
+        except Exception as e:
+            print("❌ Ошибка в whale_alert:", e)
+        time.sleep(60)
 
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("users", list_users))
-app.add_handler(CommandHandler("remove", remove_user))
+def fetch_dexscreener_data():
+    url = "https://api.dexscreener.com/latest/dex/pairs"
+    r = requests.get(url, timeout=10)
+    if r.status_code != 200:
+        return []
+    data = r.json()
+    return data.get("pairs", [])
 
-async def main():
-    logging.info("✅ Бот запущен")
-    asyncio.create_task(check_tokens())
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    await asyncio.Event().wait()
-
-if __name__ == "__main__":
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(main())
-    except RuntimeError:
-        logging.error("Ошибка запуска")
+def monitor_dex():
+    while True:
+        try:
+            tokens = fetch_dexscreener_data()
+            count = 0
+            top = []
+            for token in tokens:
+                vol = float(token.get("volume", {}).get("h1", 0))
+                change = float(token.get("priceChange", {}).get("m5", 0))
+                if vol >= 100000 and change >= 10:
+                    top.append(token)
+                    count += 1
+            if count >= 5:
+                msg = "🚀 Найдено 5+ памп-токенов на DexScreener:\n"
+                for t in top[:5]:
+                    name = t.get("baseToken", {}).get("symbol", "Unknown")
+                    price = t.get("priceUsd",
