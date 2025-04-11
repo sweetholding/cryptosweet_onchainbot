@@ -2,6 +2,9 @@ import requests, time, re, asyncio
 from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import nest_asyncio
+
+nest_asyncio.apply()
 
 TOKEN = "7594557278:AAHkeOZN2bsn4XjtoC-7zQI3yrcRFHA1gjs"
 ADMIN_ID = 423798633
@@ -42,7 +45,7 @@ EXCHANGES_SOL = {
     "9vMJfxuKxXBoEa7rM12mYLMwTacLMLDJqHozw96WQL8i": "Jupiter Aggregator"
 }
 
-ETHERSCAN_API_KEY = "YOUR_ETHERSCAN_API_KEY"
+ETHERSCAN_API_KEY = "CXTB4IUT31N836G93ZI3YQBEWBQEGGH5QS"
 SOLSCAN_API = "https://public-api.solscan.io/account/tokens"
 
 def load_users():
