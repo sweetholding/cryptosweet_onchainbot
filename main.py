@@ -1,4 +1,4 @@
-import requests, time, re, threading
+import requests, time, re, asyncio
 from bs4 import BeautifulSoup
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
@@ -6,18 +6,19 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 TOKEN = "7594557278:AAHkeOZN2bsn4XjtoC-7zQI3yrcRFHA1gjs"
 ADMIN_ID = 423798633
 USERS_FILE = "users.txt"
-RSS_URL = "https://nitter.net/whale_alert/rss"
-DEX_URL = "https://api.dexscreener.com/latest/dex/pairs"
+TX_CACHE = set()
+signal_count = 0
 
-THRESHOLDS = {"BTC": 2_000_000, "ETH": 1_000_000, "SOL": 250_000}
-TX_CACHE = []
-DEX_CACHE = []
-DEX_INTERVAL = 300
+THRESHOLDS = {
+    "BTC": 2_000_000,
+    "ETH": 1_000_000,
+    "OTHER": 500_000
+}
 
 def load_users():
     try:
         with open(USERS_FILE, "r") as f:
-            return set(line.strip() for line in f)
+            return set(int(line.strip()) for line in f)
     except:
         return set()
 
@@ -28,103 +29,83 @@ def save_users(users):
 
 users = load_users()
 
-def send_telegram_message(text):
+async def send_telegram_message(app, text):
     for uid in users:
-        requests.post(
-            f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-            json={"chat_id": uid, "text": text}
-        )
+        try:
+            await app.bot.send_message(chat_id=uid, text=text)
+        except Exception as e:
+            print(f"❌ Ошибка отправки {uid}: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
+    user_id = update.effective_chat.id
     if user_id not in users:
         users.add(user_id)
         save_users(users)
     await update.message.reply_text("✅ Ви підписались на сигнали!")
 
-async def users_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == ADMIN_ID:
-        await update.message.reply_text(f"👥 Користувачі:\n" + "\n".join(users))
+async def users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != ADMIN_ID:
+        return
+    text = "👥 Користувачі:\n" + "\n".join(str(u) for u in users)
+    await update.message.reply_text(text)
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ Бот активний і працює.")
+    if update.effective_chat.id != ADMIN_ID:
+        return
+    await update.message.reply_text(f"📊 Статус: бот працює. Надіслано сигналів: {signal_count}")
 
-def parse_amount(text):
-    match = re.search(r"\(([\d,.]+) USD\)", text)
-    return float(match.group(1).replace(",", "")) if match else 0
-
-def parse_token(text):
-    match = re.search(r"#(\w+)", text)
-    return match.group(1).upper() if match else "UNKNOWN"
-
-def parse_direction(text):
-    if "to unknown" in text or "to unknown wallet" in text:
-        return "🟢"
-    elif "to" in text:
-        return "🔴"
-    return "🔘"
-
-def check_whale_alert():
-    global TX_CACHE
+def parse_whale_alert():
+    url = "https://nitter.net/whale_alert/rss"
     try:
-        soup = BeautifulSoup(requests.get(RSS_URL, timeout=10).content, "xml")
+        res = requests.get(url, timeout=10)
+        soup = BeautifulSoup(res.text, "xml")
         items = soup.find_all("item")
+        signals = []
         for item in items:
             title = item.title.text
-            amount = parse_amount(title)
-            token = parse_token(title)
-            direction = parse_direction(title)
-            threshold = THRESHOLDS.get(token, 500_000)
-
-            if amount >= threshold and title not in TX_CACHE:
-                TX_CACHE.append(f"{direction} {title}")
-                if len(TX_CACHE) >= 5:
-                    send_telegram_message("📡 Whale Alert:\n" + "\n".join(TX_CACHE))
-                    TX_CACHE = []
+            link = item.link.text
+            if link in TX_CACHE:
+                continue
+            TX_CACHE.add(link)
+            match = re.search(r'(\$[\d,]+)', title)
+            if not match:
+                continue
+            amount = int(match.group(1).replace("$", "").replace(",", ""))
+            if "BTC" in title and amount >= THRESHOLDS["BTC"]:
+                signals.append(("BTC", title, link))
+            elif "ETH" in title and amount >= THRESHOLDS["ETH"]:
+                signals.append(("ETH", title, link))
+            elif amount >= THRESHOLDS["OTHER"]:
+                signals.append(("OTHER", title, link))
+        return signals
     except Exception as e:
         print("WhaleAlert error:", e)
+        return []
 
-def check_dexscreener():
-    global DEX_CACHE
-    try:
-        res = requests.get(DEX_URL, timeout=10)
-        data = res.json()
-        signals = []
-        for t in data.get("pairs", []):
-            base = t.get("baseToken", {}).get("symbol", "")
-            quote = t.get("quoteToken", {}).get("symbol", "")
-            volume_usd = float(t.get("volume", {}).get("h1", 0))
-            price_change = float(t.get("priceChange", {}).get("h1", 0))
-            url = t.get("url", "")
-
-            if volume_usd >= 500000 and price_change >= 5 and url not in DEX_CACHE:
-                signals.append(f"📈 {base}/{quote} +{price_change}%\n💰 Обсяг: ${int(volume_usd):,}\n🔗 {url}")
-                DEX_CACHE.append(url)
-
-            if len(signals) >= 5:
-                send_telegram_message("📡 DexScreener:\n" + "\n\n".join(signals))
-                break
-    except Exception as e:
-        print("DexScreener error:", e)
-
-def polling_loop():
-    counter = 0
+async def monitor_whale_alert(app):
+    global signal_count
+    buffer = []
     while True:
-        check_whale_alert()
-        if counter % (DEX_INTERVAL // 60) == 0:
-            check_dexscreener()
-        time.sleep(60)
-        counter += 1
+        new_signals = parse_whale_alert()
+        for net, title, link in new_signals:
+            buffer.append((net, title, link))
+        if len(buffer) >= 5:
+            msg = "🚨 5+ великих транзакцій виявлено:\n\n"
+            for net, title, link in buffer:
+                msg += f"🔹 {title}\n{link}\n\n"
+            await send_telegram_message(app, msg)
+            signal_count += 1
+            buffer = []
+        await asyncio.sleep(60)
 
-if __name__ == "__main__":
+async def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("users", users_cmd))
+    app.add_handler(CommandHandler("users", users_list))
     app.add_handler(CommandHandler("stats", stats))
-
-    thread = threading.Thread(target=polling_loop)
-    thread.daemon = True
-    thread.start()
-
+    asyncio.create_task(monitor_whale_alert(app))
     print("✅ Бот запущен...")
-    app.run_polling()
+    await app.run_polling()
+
+if __name__ == "__main__":
+    asyncio.run(main())
