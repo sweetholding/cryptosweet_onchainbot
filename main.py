@@ -123,4 +123,22 @@ def monitor_dex():
                 msg = "🚀 Найдено 5+ памп-токенов на DexScreener:\n"
                 for t in top[:5]:
                     name = t.get("baseToken", {}).get("symbol", "Unknown")
-                    price = t.get("priceUsd",
+                    price = t.get("priceUsd", "?")
+                    url = t.get("url", "#")
+                    msg += f"\n🔸 <b>{name}</b> | 💵 ${price} | 📈 +{t['priceChange']['m5']}%\n🔗 {url}"
+                send_telegram_message(msg)
+        except Exception as e:
+            print("❌ Ошибка в DexScreener:", e)
+        time.sleep(90)
+
+if __name__ == "__main__":
+    print("✅ Бот запущен...")
+    threading.Thread(target=monitor_whale, daemon=True).start()
+    threading.Thread(target=monitor_dex, daemon=True).start()
+
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("users", users_cmd))
+    app.add_handler(CommandHandler("kick", kick))
+    app.add_handler(CommandHandler("stats", stats))
+    app.run_polling()
