@@ -34,7 +34,7 @@ async def send_telegram_message(app, text):
         try:
             await app.bot.send_message(chat_id=uid, text=text)
         except Exception as e:
-            print(f"❌ Ошибка отправки {uid}: {e}")
+            print(f"❌ Помилка при відправці {uid}: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_chat.id
@@ -98,21 +98,14 @@ async def monitor_whale_alert(app):
             buffer = []
         await asyncio.sleep(60)
 
-async def main():
+async def run_bot():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("users", users_list))
     app.add_handler(CommandHandler("stats", stats))
     asyncio.create_task(monitor_whale_alert(app))
     print("✅ Бот запущен...")
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(app.run_polling())
-    except RuntimeError:
-        await app.run_polling()
+    await app.run_polling()
 
 if __name__ == "__main__":
-    try:
-        asyncio.get_running_loop().run_until_complete(main())
-    except RuntimeError:
-        asyncio.run(main())
+    asyncio.run(run_bot())
