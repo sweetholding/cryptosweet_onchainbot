@@ -120,7 +120,7 @@ async def monitor_whale_alert(app):
             await send_telegram_message(app, msg)
         await asyncio.sleep(60)
 
-async def main():
+async def run_bot():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("users", users_list))
@@ -130,4 +130,12 @@ async def main():
     await app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(run_bot())
+    except RuntimeError as e:
+        if "running event loop" in str(e):
+            loop = asyncio.get_event_loop()
+            loop.create_task(run_bot())
+            loop.run_forever()
+        else:
+            raise
