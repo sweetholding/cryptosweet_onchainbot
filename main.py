@@ -7,13 +7,43 @@ TOKEN = "7594557278:AAHkeOZN2bsn4XjtoC-7zQI3yrcRFHA1gjs"
 ADMIN_ID = 423798633
 USERS_FILE = "users.txt"
 TX_CACHE = set()
-signal_count = 0
 
 THRESHOLDS = {
     "BTC": 2_000_000,
     "ETH": 1_000_000,
     "OTHER": 500_000
 }
+
+EXCHANGES_ETH = {
+    "0x3f5CE5FBFe3E9af3971dD833D26BA9b5C936f0bE": "Binance",
+    "0xf164fC0Ec4E93095b804a4795bBe1e041497b92a": "Uniswap",
+    "0xBCfCcbde45cE874adCB698cC183deBcF17952812": "PancakeSwap",
+    "0xdAC17F958D2ee523a2206206994597C13D831ec7": "Tether Treasury",
+    "0x28C6c06298d514Db089934071355E5743bf21d60": "Binance 14",
+    "0x1d9A5c6c219219f2DfA93f1eC62eBe0199A6f173": "Coinbase",
+    "0xDC76CD25977E0a5Ae17155770273aD58648900D3": "Bitfinex",
+    "0x59A5208B32e627891C389ebafC644145224006E8": "HitBTC",
+    "0x1f98431c8ad98523631ae4a59f267346ea31f984": "Uniswap v3",
+    "0x2C4Bd064b998838076fa341A83d007FC2FA50957": "Balancer",
+    "0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc": "Uniswap USDC/ETH",
+    "0x11111254369792b2Ca5d084aB5eEA397cA8fa48B": "1inch",
+    "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f": "Uniswap v2"
+}
+
+EXCHANGES_SOL = {
+    "2uwHuZbEoEJwhRSRVRTHYkf5pQg4e84xFBa9v5EnG5zy": "Binance",
+    "6oYtKqyoR9AcJc6DDqNEfn5HiEGTkH1iFhiDpC5LNr6N": "MEXC",
+    "8KNaMJbEHRWY5kDMSyX7VqkKjgvXUecrrXK1iZdqJ7Jw": "Bybit",
+    "F6JPhv3XJk95FXzLXBct1oR8iLKLofgYFbDbynFVxUMi": "OKX",
+    "9Gg9fHBuvRUxRZZ4byV3onMR3vZ6VCChgcwAWDrrmtd5": "Gate.io",
+    "8HoQnePLqPj4M7PUDzfw8e3YF6LZ9N4K6svkzYxwPmcM": "Raydium",
+    "5W4WzDysCtVnsqA6u6mYqbs4FYDjUR63HdThDf1doUzF": "Orca",
+    "4k3Dyjzvzp8e2cwxA8GZgx6N6mUqq8Q5SQQLvMgR32A3": "Serum",
+    "9vMJfxuKxXBoEa7rM12mYLMwTacLMLDJqHozw96WQL8i": "Jupiter Aggregator"
+}
+
+ETHERSCAN_API_KEY = "YOUR_ETHERSCAN_API_KEY"
+SOLSCAN_API = "https://public-api.solscan.io/account/tokens"
 
 def load_users():
     try:
@@ -34,7 +64,7 @@ async def send_telegram_message(app, text):
         try:
             await app.bot.send_message(chat_id=uid, text=text)
         except Exception as e:
-            print(f"❌ Помилка при відправці {uid}: {e}")
+            print(f"❌ Ошибка отправки {uid}: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_chat.id
@@ -52,7 +82,7 @@ async def users_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_ID:
         return
-    await update.message.reply_text(f"📊 Статус: бот працює. Надіслано сигналів: {signal_count}")
+    await update.message.reply_text(f"✅ Бот працює")
 
 def parse_whale_alert():
     url = "https://nitter.net/whale_alert/rss"
@@ -83,22 +113,14 @@ def parse_whale_alert():
         return []
 
 async def monitor_whale_alert(app):
-    global signal_count
-    buffer = []
     while True:
         new_signals = parse_whale_alert()
         for net, title, link in new_signals:
-            buffer.append((net, title, link))
-        if len(buffer) >= 5:
-            msg = "🚨 5+ великих транзакцій виявлено:\n\n"
-            for net, title, link in buffer:
-                msg += f"🔹 {title}\n{link}\n\n"
+            msg = f"🚨 Whale Alert:\n🔹 {title}\n{link}"
             await send_telegram_message(app, msg)
-            signal_count += 1
-            buffer = []
         await asyncio.sleep(60)
 
-async def run_bot():
+async def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("users", users_list))
@@ -108,4 +130,4 @@ async def run_bot():
     await app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(run_bot())
+    asyncio.run(main())
