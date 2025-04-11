@@ -105,7 +105,14 @@ async def main():
     app.add_handler(CommandHandler("stats", stats))
     asyncio.create_task(monitor_whale_alert(app))
     print("✅ Бот запущен...")
-    await app.run_polling()
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(app.run_polling())
+    except RuntimeError:
+        await app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.get_running_loop().run_until_complete(main())
+    except RuntimeError:
+        asyncio.run(main())
