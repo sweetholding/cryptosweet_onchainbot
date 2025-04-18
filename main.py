@@ -240,8 +240,8 @@ class WhaleAlertChecker:
 
     def save_seen(self):
         with open(self.seen_file, "w") as f:
-            for link in self.seen:
-                f.write(link + "\n")
+            for tid in self.seen:
+                f.write(tid + "\n")
 
     async def run(self, get_users):
         while True:
@@ -257,20 +257,22 @@ class WhaleAlertChecker:
                 for item in items:
                     title = item.find("title").text.strip()
                     link = item.find("link").text.strip()
-                    if link in self.seen:
+                    tweet_id = link.split("/")[-1].strip()
+                    if tweet_id in self.seen:
                         continue
                     msg = (
-                        f"\U0001f40b Whale Alert\n"
-                        f"\U0001f514 {title}\n"
-                        f"\U0001f517 {link}"
+                        f"🐋 Whale Alert\n"
+                        f"🔔 {title}\n"
+                        f"🔗 {link}"
                     )
                     for uid in get_users():
                         await self.bot.send_message(chat_id=uid, text=msg)
-                    self.seen.add(link)
+                    self.seen.add(tweet_id)
                     self.save_seen()
             except Exception as e:
                 logging.error(f"WhaleAlert error: {e}")
             await asyncio.sleep(60)
+
 
 
 async def main():
