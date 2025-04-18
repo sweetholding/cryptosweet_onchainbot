@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from xml.etree import ElementTree
 import nest_asyncio
-
+import os
 # === НАСТРОЙКИ ===
 TOKEN = "7594557278:AAHkeOZN2bsn4XjtoC-7zQI3yrcRFHA1gjs"
 ADMIN_ID = 423798633
@@ -228,8 +228,20 @@ class SolanaChecker:
 class WhaleAlertChecker:
     def __init__(self, bot):
         self.bot = bot
-        self.seen = set()
+        self.seen_file = "seen_whale.txt"
+        self.seen = self.load_seen()
         self.first_run = True
+
+    def load_seen(self):
+        if not os.path.exists(self.seen_file):
+            return set()
+        with open(self.seen_file, "r") as f:
+            return set(line.strip() for line in f.readlines())
+
+    def save_seen(self):
+        with open(self.seen_file, "w") as f:
+            for link in self.seen:
+                f.write(link + "\n")
 
     async def run(self, get_users):
         while True:
@@ -243,21 +255,23 @@ class WhaleAlertChecker:
                     items = [items[0]]
                     self.first_run = False
                 for item in items:
-                    title = item.find("title").text
-                    link = item.find("link").text
+                    title = item.find("title").text.strip()
+                    link = item.find("link").text.strip()
                     if link in self.seen:
                         continue
                     msg = (
-                        f"🐋 Whale Alert\n"
-                        f"🔔 {title}\n"
-                        f"🔗 {link}"
+                        f"\U0001f40b Whale Alert\n"
+                        f"\U0001f514 {title}\n"
+                        f"\U0001f517 {link}"
                     )
                     for uid in get_users():
                         await self.bot.send_message(chat_id=uid, text=msg)
                     self.seen.add(link)
+                    self.save_seen()
             except Exception as e:
                 logging.error(f"WhaleAlert error: {e}")
             await asyncio.sleep(60)
+
 
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
