@@ -124,19 +124,11 @@ async def delwallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_wallets(file, wallets)
     await update.message.reply_text(f"✅ Удалён: {address} из {net.upper()}")
 
+# === EtherscanChecker ===
 class EtherscanChecker:
     def __init__(self, bot):
         self.bot = bot
         self.checked = set()
-
-    async def get_price(self, session, contract):
-        try:
-            params = {"contract_addresses": contract, "vs_currencies": "usd"}
-            async with session.get(COINGECKO_ETH, params=params) as r:
-                data = await r.json()
-                return data.get(contract.lower(), {}).get("usd", 0.0)
-        except:
-            return 0.0
 
     async def run(self, get_users):
         while True:
@@ -177,20 +169,21 @@ class EtherscanChecker:
                                 tx_sample = tx_list[0]
                                 direction = "➡️ deposit to" if tx_sample["to"].lower() == wallet.lower() else "⬅️ withdraw from"
                                 msg = (
-                                    f"🔆 {symbol} on Ethereum"
-                                    f"💰 {total_usd:,.0f}$"
-                                    f"📤 {tx_sample['from']}"
-                                    f"📥 {tx_sample['to']}"
-                                    f"📊 {direction} ({meta['name']})"
+                                    f"🔆 {symbol} on Ethereum\n"
+                                    f"💰 {total_usd:,.0f}$\n"
+                                    f"📤 {tx_sample['from']}\n"
+                                    f"📥 {tx_sample['to']}\n"
+                                    f"📊 {direction} ({meta['name']})\n"
                                     f"🔗 https://etherscan.io/tx/{hash}"
                                 )
-                                for uid in get_users():
+                                for uid in await get_users():
                                     await self.bot.send_message(chat_id=uid, text=msg)
                                 self.checked.add(hash)
             except Exception as e:
                 logging.error(f"EtherscanChecker error: {e}")
             await asyncio.sleep(600)
-# === Solana Transaction Checker ===
+
+# === SolanaChecker ===
 class SolanaChecker:
     def __init__(self, bot):
         self.bot = bot
@@ -201,8 +194,6 @@ class SolanaChecker:
         while True:
             try:
                 now = datetime.now(timezone.utc)
-                today = int(now.timestamp())
-                yesterday = int((now - timedelta(hours=3)).timestamp())
                 wallets = load_wallets(SOL_WALLETS_FILE)
                 async with aiohttp.ClientSession() as s:
                     for wallet, meta in wallets.items():
@@ -211,7 +202,6 @@ class SolanaChecker:
                         async with s.get(url, headers=headers) as r:
                             data = await r.json()
                             txs = data if isinstance(data, list) else data.get("data", [])
-
                         for tx in txs:
                             sig = tx.get("signature") or tx.get("txHash")
                             if not sig or sig in self.checked:
@@ -244,32 +234,24 @@ class SolanaChecker:
                                 direction = "➡️ deposit to" if to_ == wallet else "⬅️ withdraw from"
                             if total_usd >= meta["threshold"]:
                                 msg = (
-                                    f"🔣 {symbol} on Solana"
-                                    f"💰 {total_usd:,.0f}$"
-                                    f"📤 {from_}"
-                                    f"📥 {to_}"
-                                    f"📊 {direction} ({meta['name']})"
+                                    f"🔣 {symbol} on Solana\n"
+                                    f"💰 {total_usd:,.0f}$\n"
+                                    f"📤 {from_}\n"
+                                    f"📥 {to_}\n"
+                                    f"📊 {direction} ({meta['name']})\n"
                                     f"🔗 https://solscan.io/tx/{sig}"
                                 )
-                                for uid in get_users():
+                                for uid in await get_users():
                                     await self.bot.send_message(chat_id=uid, text=msg)
             except Exception as e:
                 logging.error(f"SolanaChecker error: {e}")
             await asyncio.sleep(3600)
-            # === Arbitrum Transaction Checker ===
+
+# === ArbitrumChecker ===
 class ArbitrumChecker:
     def __init__(self, bot):
         self.bot = bot
         self.checked = set()
-
-    async def get_price(self, session, contract):
-        try:
-            params = {"contract_addresses": contract, "vs_currencies": "usd"}
-            async with session.get(COINGECKO_ARB, params=params) as r:
-                data = await r.json()
-                return data.get(contract.lower(), {}).get("usd", 0.0)
-        except:
-            return 0.0
 
     async def run(self, get_users):
         while True:
@@ -302,20 +284,20 @@ class ArbitrumChecker:
                             usd = price * amount
                             if usd >= meta["threshold"]:
                                 msg = (
-                                    f"🧬 {token.upper()} on Arbitrum"
-                                    f"💰 {usd:,.0f}$"
-                                    f"📤 {tx['from']}"
-                                    f"📥 {tx['to']}"
+                                    f"🧬 {token.upper()} on Arbitrum\n"
+                                    f"💰 {usd:,.0f}$\n"
+                                    f"📤 {tx['from']}\n"
+                                    f"📥 {tx['to']}\n"
                                     f"🔗 https://arbiscan.io/tx/{hash}"
                                 )
-                                for uid in get_users():
+                                for uid in await get_users():
                                     await self.bot.send_message(chat_id=uid, text=msg)
                             self.checked.add(hash)
             except Exception as e:
                 logging.error(f"ArbitrumChecker error: {e}")
             await asyncio.sleep(600)
 
-# === Whale Alert Checker ===
+# === WhaleAlertChecker ===
 class WhaleAlertChecker:
     def __init__(self, bot):
         self.bot = bot
@@ -356,7 +338,6 @@ class WhaleAlertChecker:
                     if tweet_id in self.seen:
                         continue
 
-                    # ✅ Добавляем и сохраняем ДО отправки, чтобы не слать снова при сбое
                     self.seen.add(tweet_id)
                     self.save_seen()
 
@@ -366,7 +347,7 @@ class WhaleAlertChecker:
                         f"🔗 {link}"
                     )
 
-                    for uid in get_users():
+                    for uid in await get_users():
                         try:
                             await self.bot.send_message(chat_id=uid, text=msg)
                         except Exception as e:
@@ -376,7 +357,6 @@ class WhaleAlertChecker:
                 logging.error(f"WhaleAlert error: {e}")
 
             await asyncio.sleep(600)
-
 
 async def wallets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -398,8 +378,11 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text("✅ Бот працює і відправляє сигнали")
 
+# ✅ Динамическая функция для получения актуальных подписчиков
+async def get_users():
+    return get_user_list()
 
-# === Main Function ===
+# === Главная функция запуска бота и всех чекеров ===
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -414,14 +397,15 @@ async def main():
     await asyncio.sleep(2)
     await app.bot.send_message(chat_id=ADMIN_ID, text="✅ CryptoSweet Onchain запущено")
 
-    asyncio.create_task(EtherscanChecker(app.bot).run(get_user_list))
-    asyncio.create_task(SolanaChecker(app.bot).run(get_user_list))
-    asyncio.create_task(ArbitrumChecker(app.bot).run(get_user_list))
-    asyncio.create_task(WhaleAlertChecker(app.bot).run(get_user_list))
+    # ✅ Запускаем чекеры, передавая функцию get_users
+    asyncio.create_task(EtherscanChecker(app.bot).run(get_users))
+    asyncio.create_task(SolanaChecker(app.bot).run(get_users))
+    asyncio.create_task(ArbitrumChecker(app.bot).run(get_users))
+    asyncio.create_task(WhaleAlertChecker(app.bot).run(get_users))
 
     await app.run_polling()
 
-
+# === Запуск при старте файла ===
 if __name__ == "__main__":
     nest_asyncio.apply()
     asyncio.run(main())
