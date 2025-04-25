@@ -1,61 +1,35 @@
-# ✅ CryptoSweet Onchain Bot: Ethereum + Solana (USD-based Filter, Clean Alerts)
+# ✅ CryptoSweet Onchain Bot: ETH, Solana, Arbitrum, Whale Alert (Final Version)
 
 import logging
 import asyncio
 import aiohttp
+import json
+import os
+import nest_asyncio
 from datetime import datetime, timezone, timedelta
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from xml.etree import ElementTree
-import nest_asyncio
-import os
-# === НАСТРОЙКИ ===
+
+# === CONFIG ===
 TOKEN = "7594557278:AAHkeOZN2bsn4XjtoC-7zQI3yrcRFHA1gjs"
 ADMIN_ID = 423798633
 USERS_FILE = "users.txt"
 ETHERSCAN_API_KEY = "REV5JFB2CTMDHEAN7NZ9F7N9TXE7C1IIHG"
+SOLSCAN_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjcmVhdGVkQXQiOjE3NDQ5NzE0NjUxMDksImVtYWlsIjoia2lsYXJ5OEBnbWFpbC5jb20iLCJhY3Rpb24iOiJ0b2tlbi1hcGkiLCJhcGlWZXJzaW9uIjoidjIiLCJpYXQiOjE3NDQ5NzE0NjV9.ERDDGAValYBLgskm1SsrPAWPBQmPgBYnRnYrTtmHZS0"
 SOLANA_API_KEY = "f2ab631c-21c1-4db6-aeaa-29bc2300d6f7"
-COINGECKO_SOL = "https://api.coingecko.com/api/v3/simple/token_price/solana"
+ARBITRUM_API_KEY = "CSV7URMAPDJHVCZRW9WZSGW7IDF9XVISGV"
 COINGECKO_ETH = "https://api.coingecko.com/api/v3/simple/token_price/ethereum"
-DEXSCREENER_API = "https://api.dexscreener.com/latest/dex/tokens"
-
-ETH_THRESHOLD = 1_000_000
-SPL_THRESHOLD = 500_000
+COINGECKO_SOL = "https://api.coingecko.com/api/v3/simple/token_price/solana"
+COINGECKO_ARB = "https://api.coingecko.com/api/v3/simple/token_price/arbitrum-one"
 EXCLUDED_TOKENS = ["usdt", "usdc", "eth", "dai", "busd", "eurt"]
+ETH_WALLETS_FILE = "eth_wallets.json"
+SOL_WALLETS_FILE = "sol_wallets.json"
+ARBITRUM_WALLETS_FILE = "arbitrum_wallets.json"
 
-ETH_CEX_WALLETS = {
-    "0x742d35Cc6634C0532925a3b844Bc454e4438f44e": "Binance",
-    "0x3f5CE5FBFe3E9af3971dD833D26BA9b5C936f0bE": "Binance",
-    "0x28C6c06298d514Db089934071355E5743bf21d60": "Binance",
-    "0x5C985E89DeB3f8a4bB5E7013eB4F4e8e36FB0fE1": "OKX",
-    "0x564286362092D8e7936f0549571a803B203aAceD": "Huobi",
-    "0xF977814e90dA44bFA03b6295A0616a897441aceC": "Binance",
-    "0x0A869d79a7052C7f1b55a8EbAbb1c0F922bE40f6": "Binance",
-    "0x267be1c1d684f78cb4f6a176c4911b741e4ffdc0": "Binance",
-    "0x53d284357ec70cE289D6D64134DfAc8E511c8a3D": "Kraken",
-    "0x4e9ce36e442e55ecd9025b9a6e0d88485d628a67": "Poloniex",
-    "0x6fc82a5fe25a5cdb58bc74600a40a69c065263f8": "Bitfinex",
-    "0x876eabf441b2ee5b5b0554fd502a8e0600950cfa": "Gemini",
-    "0x3f8CB6fB8c1536B1a78E24F8c5dC4E1a9cF4c80C": "Uniswap",
-    "0x1111111254fb6c44bac0bed2854e76f90643097d": "1inch",
-    "0xdef1c0ded9bec7f1a1670819833240f027b25eff": "0x Project"
-}
-
-SOLANA_CEX_WALLETS = {
-    "5Rb7SJ5ZPpW6AwWcpY9gH6Z7vb6dTvjkGsY5tBymZ3fA": "Binance",
-    "Gd3R5WhquVL7mvJdkfLvb1hZUB7AzTPaH75XEfD4eX2j": "Binance",
-    "9xzZrLTV7XvEhTQAnjEDY3QoZXpgfvuP1C4HZJG9jXcT": "Coinbase",
-    "CKk1RMVDp98YAHFihkZ6vGGMFNooRxXqKNVN8YcKX6tH": "Kraken",
-    "5F2VuMgnSUpx3f5dfhzPbZLgKSPayDtAuTQkGg7Rf2o5": "Gate.io",
-    "3gCzvDMEzM9pbyv3AVZVvPZjGppMX5mNxdVyk7Vzzfwu": "Raydium",
-    "6F2vZ5hbf1PdLtYAvXWk7mU3zcnUXkWBcU5wToUaERjE": "Orca",
-    "9xQeWvG816bUx9EPn6bDQoNqjAmpJZT89XepS6v3Z7jR": "Jupiter",
-    "Es9vMFrzaCERGrv7Dt9WzrbU98hGTyYqCVyfM7VNqTZz": "Serum"
-}
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
-
+logging.basicConfig(level=logging.INFO)
 user_ids = set()
+usernames = {}
 
 def save_users():
     with open(USERS_FILE, "w") as f:
@@ -66,28 +40,89 @@ def load_users():
     try:
         with open(USERS_FILE, "r") as f:
             for line in f:
-                user_ids.add(int(line.strip()))
+                uid = int(line.strip())
+                user_ids.add(uid)
     except FileNotFoundError:
         pass
+
+load_users()
 
 def get_user_list():
     return list(user_ids)
 
-load_users()
+def load_wallets(file):
+    if os.path.exists(file):
+        with open(file, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_wallets(file, data):
+    with open(file, "w") as f:
+        json.dump(data, f)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+    username = update.effective_user.username or "Без ника"
     if uid not in user_ids:
         user_ids.add(uid)
         save_users()
+    usernames[uid] = username
     await context.bot.send_message(chat_id=uid, text="✅ Ви підписались на сигнали!")
 
 async def users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == ADMIN_ID:
-        await context.bot.send_message(chat_id=ADMIN_ID, text="\n".join(str(i) for i in user_ids))
+    if update.effective_user.id != ADMIN_ID:
+        return
+    lines = [f"{usernames.get(uid, 'Без ника')} — {uid}" for uid in user_ids]
+    await context.bot.send_message(chat_id=ADMIN_ID, text="\n".join(lines))
 
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_user.id, text="✅ Бот працює")
+async def deluser(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    args = context.args
+    if not args:
+        await update.message.reply_text("❗ Укажи ID пользователя")
+        return
+    try:
+        uid = int(args[0])
+        if uid in user_ids:
+            user_ids.remove(uid)
+            save_users()
+            await update.message.reply_text(f"✅ Пользователь {uid} удалён")
+        else:
+            await update.message.reply_text("❗ Пользователь не найден")
+    except ValueError:
+        await update.message.reply_text("❗ Неверный формат ID")
+
+async def addwallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    args = context.args
+    if len(args) < 4:
+        await update.message.reply_text("❗ Формат: /addwallet eth адрес биржа порог")
+        return
+    net, address, name, threshold = args[0].lower(), args[1], args[2], float(args[3])
+    files = [ETH_WALLETS_FILE, ARBITRUM_WALLETS_FILE] if net == "eth" else [SOL_WALLETS_FILE] if net == "sol" else []
+    for file in files:
+        wallets = load_wallets(file)
+        wallets[address] = {"name": name, "threshold": threshold}
+        save_wallets(file, wallets)
+    await update.message.reply_text(f"✅ Добавлен: {address} → {name.upper()} ({net.upper()})")
+
+async def delwallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text("❗ Формат: /delwallet eth/sol адрес")
+        return
+    net, address = args[0].lower(), args[1]
+    files = [ETH_WALLETS_FILE, ARBITRUM_WALLETS_FILE] if net == "eth" else [SOL_WALLETS_FILE]
+    for file in files:
+        wallets = load_wallets(file)
+        if address in wallets:
+            del wallets[address]
+            save_wallets(file, wallets)
+    await update.message.reply_text(f"✅ Удалён: {address} из {net.upper()}")
 
 class EtherscanChecker:
     def __init__(self, bot):
@@ -106,9 +141,9 @@ class EtherscanChecker:
     async def run(self, get_users):
         while True:
             try:
-                now = datetime.now(timezone.utc)
+                wallets = load_wallets(ETH_WALLETS_FILE)
                 async with aiohttp.ClientSession() as s:
-                    for wallet, exch in ETH_CEX_WALLETS.items():
+                    for wallet, meta in wallets.items():
                         url = f"https://api.etherscan.io/api?module=account&action=tokentx&address={wallet}&sort=desc&apikey={ETHERSCAN_API_KEY}"
                         async with s.get(url) as r:
                             data = await r.json()
@@ -121,15 +156,10 @@ class EtherscanChecker:
                             if hash not in grouped:
                                 grouped[hash] = []
                             grouped[hash].append(tx)
-
                         for hash, tx_list in grouped.items():
                             total_usd = 0
                             symbol = ""
                             for tx in tx_list:
-                                timestamp = int(tx.get("timeStamp", "0"))
-                                tx_time = datetime.fromtimestamp(timestamp, timezone.utc)
-                                if (now - tx_time).total_seconds() > 600:
-                                    continue
                                 contract = tx["contractAddress"]
                                 token = tx["tokenSymbol"].lower()
                                 if token in EXCLUDED_TOKENS:
@@ -138,18 +168,20 @@ class EtherscanChecker:
                                 if amount == 0:
                                     continue
                                 price = await self.get_price(s, contract)
+                                if price == 0:
+                                    continue
                                 usd = price * amount
                                 total_usd += usd
                                 symbol = token.upper()
-                            if total_usd >= ETH_THRESHOLD:
+                            if total_usd >= meta["threshold"]:
                                 tx_sample = tx_list[0]
                                 direction = "➡️ deposit to" if tx_sample["to"].lower() == wallet.lower() else "⬅️ withdraw from"
                                 msg = (
-                                    f"🔆 {symbol} on Ethereum\n"
-                                    f"💰 {total_usd:,.0f}$\n"
-                                    f"📤 {tx_sample['from']}\n"
-                                    f"📥 {tx_sample['to']}\n"
-                                    f"📊 {direction} ({exch})\n"
+                                    f"🔆 {symbol} on Ethereum"
+                                    f"💰 {total_usd:,.0f}$"
+                                    f"📤 {tx_sample['from']}"
+                                    f"📥 {tx_sample['to']}"
+                                    f"📊 {direction} ({meta['name']})"
                                     f"🔗 https://etherscan.io/tx/{hash}"
                                 )
                                 for uid in get_users():
@@ -158,7 +190,7 @@ class EtherscanChecker:
             except Exception as e:
                 logging.error(f"EtherscanChecker error: {e}")
             await asyncio.sleep(600)
-
+# === Solana Transaction Checker ===
 class SolanaChecker:
     def __init__(self, bot):
         self.bot = bot
@@ -171,19 +203,20 @@ class SolanaChecker:
                 now = datetime.now(timezone.utc)
                 today = int(now.timestamp())
                 yesterday = int((now - timedelta(hours=3)).timestamp())
+                wallets = load_wallets(SOL_WALLETS_FILE)
                 async with aiohttp.ClientSession() as s:
-                    for wallet, exch in SOLANA_CEX_WALLETS.items():
-                        url = f"https://api.helius.xyz/v0/addresses/{wallet}/transactions?api-key={SOLANA_API_KEY}&before={today}&after={yesterday}"
-                        async with s.get(url) as r:
-                            txs = await r.json()
-                        if not isinstance(txs, list):
-                            logging.error(f"Unexpected Solana response: {txs}")
-                            continue
+                    for wallet, meta in wallets.items():
+                        url = f"https://pro-api.solscan.io/v1.0/account/{wallet}/transactions?limit=5"
+                        headers = {"accept": "application/json", "token": SOLSCAN_API_KEY}
+                        async with s.get(url, headers=headers) as r:
+                            data = await r.json()
+                            txs = data if isinstance(data, list) else data.get("data", [])
 
                         for tx in txs:
-                            sig = tx.get("signature")
+                            sig = tx.get("signature") or tx.get("txHash")
                             if not sig or sig in self.checked:
                                 continue
+                            self.checked.add(sig)
                             total_usd = 0
                             symbol = ""
                             from_ = to_ = direction = ""
@@ -209,22 +242,80 @@ class SolanaChecker:
                                 from_ = t.get("fromUserAccount")
                                 to_ = t.get("toUserAccount")
                                 direction = "➡️ deposit to" if to_ == wallet else "⬅️ withdraw from"
-                            if total_usd >= SPL_THRESHOLD:
+                            if total_usd >= meta["threshold"]:
                                 msg = (
-                                    f"🔣 {symbol} on Solana\n"
-                                    f"💰 {total_usd:,.0f}$\n"
-                                    f"📤 {from_}\n"
-                                    f"📥 {to_}\n"
-                                    f"📊 {direction} ({exch})\n"
+                                    f"🔣 {symbol} on Solana"
+                                    f"💰 {total_usd:,.0f}$"
+                                    f"📤 {from_}"
+                                    f"📥 {to_}"
+                                    f"📊 {direction} ({meta['name']})"
                                     f"🔗 https://solscan.io/tx/{sig}"
                                 )
                                 for uid in get_users():
                                     await self.bot.send_message(chat_id=uid, text=msg)
-                                self.checked.add(sig)
             except Exception as e:
                 logging.error(f"SolanaChecker error: {e}")
-            await asyncio.sleep(21600)
+            await asyncio.sleep(3600)
+            # === Arbitrum Transaction Checker ===
+class ArbitrumChecker:
+    def __init__(self, bot):
+        self.bot = bot
+        self.checked = set()
 
+    async def get_price(self, session, contract):
+        try:
+            params = {"contract_addresses": contract, "vs_currencies": "usd"}
+            async with session.get(COINGECKO_ARB, params=params) as r:
+                data = await r.json()
+                return data.get(contract.lower(), {}).get("usd", 0.0)
+        except:
+            return 0.0
+
+    async def run(self, get_users):
+        while True:
+            try:
+                wallets = load_wallets(ARBITRUM_WALLETS_FILE)
+                async with aiohttp.ClientSession() as s:
+                    for wallet, meta in wallets.items():
+                        url = f"https://api.arbiscan.io/api?module=account&action=tokentx&address={wallet}&sort=desc&apikey={ARBITRUM_API_KEY}"
+                        async with s.get(url) as r:
+                            data = await r.json()
+                        txs = data.get("result", [])
+                        for tx in txs:
+                            hash = tx["hash"]
+                            if hash in self.checked:
+                                continue
+                            timestamp = int(tx.get("timeStamp", "0"))
+                            tx_time = datetime.fromtimestamp(timestamp, timezone.utc)
+                            if (datetime.now(timezone.utc) - tx_time).total_seconds() > 900:
+                                continue
+                            contract = tx["contractAddress"]
+                            token = tx["tokenSymbol"].lower()
+                            if token in EXCLUDED_TOKENS:
+                                continue
+                            amount = float(tx["value"]) / 10**int(tx["tokenDecimal"])
+                            if amount == 0:
+                                continue
+                            price = await self.get_price(s, contract)
+                            if price == 0:
+                                continue
+                            usd = price * amount
+                            if usd >= meta["threshold"]:
+                                msg = (
+                                    f"🧬 {token.upper()} on Arbitrum"
+                                    f"💰 {usd:,.0f}$"
+                                    f"📤 {tx['from']}"
+                                    f"📥 {tx['to']}"
+                                    f"🔗 https://arbiscan.io/tx/{hash}"
+                                )
+                                for uid in get_users():
+                                    await self.bot.send_message(chat_id=uid, text=msg)
+                            self.checked.add(hash)
+            except Exception as e:
+                logging.error(f"ArbitrumChecker error: {e}")
+            await asyncio.sleep(600)
+
+# === Whale Alert Checker ===
 class WhaleAlertChecker:
     def __init__(self, bot):
         self.bot = bot
@@ -249,36 +340,75 @@ class WhaleAlertChecker:
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
                     async with s.get("https://rsshub.app/twitter/user/whale_alert") as r:
                         text = await r.text()
+
                 root = ElementTree.fromstring(text)
                 items = root.findall(".//item")[:3]
+
                 if self.first_run and items:
                     items = [items[0]]
                     self.first_run = False
+
                 for item in items:
                     title = item.find("title").text.strip()
                     link = item.find("link").text.strip()
                     tweet_id = link.split("/")[-1].strip()
+
                     if tweet_id in self.seen:
                         continue
+
+                    # ✅ Добавляем и сохраняем ДО отправки, чтобы не слать снова при сбое
+                    self.seen.add(tweet_id)
+                    self.save_seen()
+
                     msg = (
                         f"🐋 Whale Alert\n"
                         f"🔔 {title}\n"
                         f"🔗 {link}"
                     )
+
                     for uid in get_users():
-                        await self.bot.send_message(chat_id=uid, text=msg)
-                    self.seen.add(tweet_id)
-                    self.save_seen()
+                        try:
+                            await self.bot.send_message(chat_id=uid, text=msg)
+                        except Exception as e:
+                            logging.error(f"Ошибка при отправке Whale Alert для {uid}: {e}")
+
             except Exception as e:
                 logging.error(f"WhaleAlert error: {e}")
-            await asyncio.sleep(60)
+
+            await asyncio.sleep(600)
 
 
+async def wallets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
 
+    eth = load_wallets(ETH_WALLETS_FILE)
+    sol = load_wallets(SOL_WALLETS_FILE)
+    arb = load_wallets(ARBITRUM_WALLETS_FILE)
+
+    msg = "<b>ETH:</b>\n" + "\n".join(f"{a} → {v['name']} ({v['threshold']}$)" for a, v in eth.items())
+    msg += "\n\n<b>SOL:</b>\n" + "\n".join(f"{a} → {v['name']} ({v['threshold']}$)" for a, v in sol.items())
+    msg += "\n\n<b>ARBITRUM:</b>\n" + "\n".join(f"{a} → {v['name']} ({v['threshold']}$)" for a, v in arb.items())
+
+    await update.message.reply_text(msg, parse_mode="HTML")
+
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    await update.message.reply_text("✅ Бот працює і відправляє сигнали")
+
+
+# === Main Function ===
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("users", users))
+    app.add_handler(CommandHandler("deluser", deluser))
+    app.add_handler(CommandHandler("addwallet", addwallet))
+    app.add_handler(CommandHandler("delwallet", delwallet))
+    app.add_handler(CommandHandler("wallets", wallets))
     app.add_handler(CommandHandler("stats", stats))
 
     await asyncio.sleep(2)
@@ -286,9 +416,11 @@ async def main():
 
     asyncio.create_task(EtherscanChecker(app.bot).run(get_user_list))
     asyncio.create_task(SolanaChecker(app.bot).run(get_user_list))
+    asyncio.create_task(ArbitrumChecker(app.bot).run(get_user_list))
     asyncio.create_task(WhaleAlertChecker(app.bot).run(get_user_list))
 
     await app.run_polling()
+
 
 if __name__ == "__main__":
     nest_asyncio.apply()
